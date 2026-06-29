@@ -1,4 +1,6 @@
-import React from "react";
+"use client";
+
+import React, { useEffect, useState } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Trade {
@@ -12,43 +14,6 @@ interface Trade {
   livePL: number;
   openTime: string;
 }
-
-// ─── Mock data (will be replaced by Supabase real-time fetch) ─────────────────
-const MOCK_TRADES: Trade[] = [
-  {
-    ticket: "#102847",
-    symbol: "EURUSD",
-    type: "BUY",
-    volume: 0.5,
-    entry: 1.08432,
-    sl: 1.081,
-    tp: 1.09,
-    livePL: 124.5,
-    openTime: "2026-06-30 08:14:22",
-  },
-  {
-    ticket: "#102848",
-    symbol: "XAUUSD",
-    type: "SELL",
-    volume: 0.1,
-    entry: 2345.6,
-    sl: 2360.0,
-    tp: 2310.0,
-    livePL: -87.3,
-    openTime: "2026-06-30 09:02:11",
-  },
-  {
-    ticket: "#102849",
-    symbol: "GBPJPY",
-    type: "BUY",
-    volume: 0.3,
-    entry: 193.452,
-    sl: 193.1,
-    tp: 194.2,
-    livePL: 56.8,
-    openTime: "2026-06-30 09:45:03",
-  },
-];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function plColor(value: number): string {
@@ -68,7 +33,7 @@ function typeBadge(type: "BUY" | "SELL") {
     : "bg-red-500/20 text-red-400 border border-red-500/40";
 }
 
-// ─── Table Column Header ──────────────────────────────────────────────────────
+// ─── Table Components ─────────────────────────────────────────────────────────
 function Th({ children }: { children: React.ReactNode }) {
   return (
     <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 border-b border-gray-800">
@@ -93,7 +58,27 @@ function Td({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
-  const trades = MOCK_TRADES;
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  async function fetchTrades() {
+    try {
+      const res = await fetch("/api/trades/active");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      setTrades(json.trades);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch trades");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    fetchTrades();
+  }, []);
 
   return (
     <div className="max-w-7xl mx-auto flex flex-col gap-6">
@@ -106,13 +91,33 @@ export default function DashboardPage() {
             <span className="text-gray-400 font-mono">260904217</span>
           </p>
         </div>
-        <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5">
-          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-          <span className="text-xs text-gray-400 font-mono">
-            {trades.length} open position{trades.length !== 1 ? "s" : ""}
-          </span>
+        <div className="flex items-center gap-3">
+          {/* Refresh button */}
+          <button
+            onClick={fetchTrades}
+            disabled={loading}
+            className="text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+          >
+            {loading ? "Loading..." : "Refresh"}
+          </button>
+          <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5">
+            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+            <span className="text-xs text-gray-400 font-mono">
+              {trades.length} open position{trades.length !== 1 ? "s" : ""}
+            </span>
+          </div>
         </div>
       </div>
+
+      {/* Error State */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm">
+          <span className="font-bold">Connection error:</span> {error}
+          <span className="text-red-400/60 ml-2">
+            — Make sure your Supabase credentials are set in .env.local
+          </span>
+        </div>
+      )}
 
       {/* Trades Table */}
       <div className="overflow-x-auto rounded-xl border border-gray-800 bg-gray-950/50">
@@ -131,7 +136,16 @@ export default function DashboardPage() {
             </tr>
           </thead>
           <tbody>
-            {trades.length === 0 ? (
+            {loading ? (
+              <tr>
+                <td colSpan={9} className="text-center py-16 text-gray-600">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-6 h-6 border-2 border-gray-600 border-t-green-500 rounded-full animate-spin"></div>
+                    <span className="text-sm">Fetching active trades...</span>
+                  </div>
+                </td>
+              </tr>
+            ) : trades.length === 0 ? (
               <tr>
                 <td colSpan={9} className="text-center py-16 text-gray-600">
                   <div className="flex flex-col items-center gap-2">
@@ -180,7 +194,9 @@ export default function DashboardPage() {
             {formatPL(trades.reduce((sum, t) => sum + t.livePL, 0))}
           </span>
         </span>
-        <span className="font-mono">Last sync: just now</span>
+        <span className="font-mono">
+          Last sync: {loading ? "..." : new Date().toLocaleTimeString()}
+        </span>
       </div>
     </div>
   );
