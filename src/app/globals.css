@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: #000000;
+  --color-foreground: #ffffff;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: #000000;
+  color: #ffffff;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Pulsing glow animation for LIVE indicator */
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    text-shadow: 0 0 8px #22c55e, 0 0 16px #22c55e;
+  }
+  50% {
+    opacity: 0.6;
+    text-shadow: 0 0 4px #22c55e, 0 0 8px #22c55e;
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
