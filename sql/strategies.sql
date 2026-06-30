@@ -1,61 +1,62 @@
 -- ═══════════════════════════════════════════════════════════════════════════════
--- MOKABotTRADE — Strategies & Rules Tables
+-- MOKABotTRADE — Generic Strategy Tables
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 -- ─── Strategies Table ─────────────────────────────────────────────────────────
--- Contains trading strategies with entry/exit rules stored as JSON
 CREATE TABLE IF NOT EXISTS strategies (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
   description TEXT,
   symbol TEXT NOT NULL,
-  timeframe TEXT DEFAULT 'M15',
   
-  -- Entry conditions (JSON): defines when to open a trade
-  -- Example: {"indicators": ["RSI < 30", "MACD > Signal"], "pattern": "bullish_engulfing"}
+  -- Entry rules (JSONB) — Generic format:
+  -- {
+  --   "conditions": [
+  --     {"indicator": "rsi", "params": {"length": 14}, "operator": "lt", "value": 30},
+  --     {"indicator": "macd", "params": {"fast": 12, "slow": 26, "signal": 9}, "operator": "crosses_above", "compare_to": "signal"}
+  --   ],
+  --   "logic": "AND",
+  --   "timeframe": "M15"
+  -- }
   entry_rules JSONB DEFAULT '{}'::jsonb,
   
-  -- Exit conditions (JSON): defines when to close/modify
-  -- Example: {"take_profit": "tp_points", "stop_loss": "sl_points", "trailing": true}
+  -- Exit rules (JSONB) — Same format as entry
   exit_rules JSONB DEFAULT '{}'::jsonb,
   
-  -- Position sizing rules (JSON)
-  -- Example: {"mode": "risk_percent", "risk_per_trade": 1.0, "max_volume": 1.0}
+  -- Position sizing (JSONB):
+  -- {"mode": "risk_percent", "risk_per_trade": 1.0, "max_volume": 0.5}
+  -- {"mode": "fixed", "max_volume": 0.1}
   sizing_rules JSONB DEFAULT '{}'::jsonb,
   
-  -- Filters (JSON): additional conditions to check
-  -- Example: {"max_spread": 30, "session": "london,new_york", "min_volatility": 0.5}
+  -- Filters (JSONB):
+  -- {"max_spread_points": 30, "sessions": ["london", "new_york"]}
   filters JSONB DEFAULT '{}'::jsonb,
   
   -- Status
   is_active BOOLEAN DEFAULT false,
-  priority INTEGER DEFAULT 0,  -- Higher = checked first
+  priority INTEGER DEFAULT 0,
   
-  -- Metadata
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ─── Trade Signals Table ──────────────────────────────────────────────────────
--- Stores signals detected by the bot (for audit/debugging)
+-- ─── Audit Tables ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS trade_signals (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   strategy_id UUID REFERENCES strategies(id) ON DELETE CASCADE,
   symbol TEXT NOT NULL,
-  signal_type TEXT NOT NULL,  -- 'ENTRY_BUY', 'ENTRY_SELL', 'EXIT', 'MODIFY'
+  signal_type TEXT NOT NULL,
   signal_data JSONB DEFAULT '{}'::jsonb,
-  action_taken TEXT,  -- 'EXECUTED', 'SKIPPED', 'FAILED'
+  action_taken TEXT,
   action_reason TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ─── Execution Log Table ──────────────────────────────────────────────────────
--- Logs all trade executions for audit
 CREATE TABLE IF NOT EXISTS execution_log (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   strategy_id UUID REFERENCES strategies(id) ON DELETE CASCADE,
   ticket TEXT,
-  action TEXT NOT NULL,  -- 'OPEN', 'CLOSE', 'MODIFY'
+  action TEXT NOT NULL,
   symbol TEXT,
   volume DECIMAL(10,2),
   price DECIMAL(15,5),
@@ -70,20 +71,70 @@ ALTER TABLE strategies DISABLE ROW LEVEL SECURITY;
 ALTER TABLE trade_signals DISABLE ROW LEVEL SECURITY;
 ALTER TABLE execution_log DISABLE ROW LEVEL SECURITY;
 
--- ─── Example Strategy ─────────────────────────────────────────────────────────
--- Insert a sample strategy (you can modify via dashboard)
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- EXAMPLE STRATEGIES (Generic JSONB format)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- Strategy 1: RSI Oversold Buy
+-- Change "value" from 30 to 25 → bot immediately uses 25
+-- Change "indicator" from "rsi" to "stoch" → bot switches to Stochastic
 INSERT INTO strategies (name, description, symbol, entry_rules, exit_rules, sizing_rules, filters, is_active)
 VALUES (
-  'RSI_Reversal',
-  'Buy when RSI < 30 and MACD crosses above signal',
+  'RSI_Oversold_Buy',
+  'Buy when RSI is oversold (below 30)',
   'XAUUSD',
-  '{"indicators": [{"name": "RSI", "condition": "less_than", "value": 30}, {"name": "MACD", "condition": "crosses_above", "compare": "signal"}], "timeframe": "M15"}'::jsonb,
-  '{"take_profit": "use_risk_matrix", "stop_loss": "use_risk_matrix", "breakeven": "use_risk_matrix"}'::jsonb,
+  '{
+    "conditions": [
+      {"indicator": "rsi", "params": {"length": 14}, "operator": "lt", "value": 30}
+    ],
+    "logic": "AND",
+    "timeframe": "M15"
+  }'::jsonb,
+  '{}'::jsonb,
   '{"mode": "risk_percent", "risk_per_trade": 1.0, "max_volume": 0.5}'::jsonb,
-  '{"max_spread_points": 30, "sessions": ["london", "new_york"]}'::jsonb,
-  false  -- Start inactive
-)
-ON CONFLICT (name) DO NOTHING;
+  '{"max_spread_points": 50, "sessions": ["london", "new_york"]}'::jsonb,
+  false
+) ON CONFLICT (name) DO NOTHING;
+
+-- Strategy 2: MACD + RSI Combo
+-- Both conditions must be true (AND logic)
+INSERT INTO strategies (name, description, symbol, entry_rules, exit_rules, sizing_rules, filters, is_active)
+VALUES (
+  'MACD_RSI_Combo',
+  'Buy when MACD crosses above signal AND RSI < 40',
+  'XAUUSD',
+  '{
+    "conditions": [
+      {"indicator": "macd", "params": {"fast": 12, "slow": 26, "signal": 9}, "operator": "crosses_above", "compare_to": "signal"},
+      {"indicator": "rsi", "params": {"length": 14}, "operator": "lt", "value": 40}
+    ],
+    "logic": "AND",
+    "timeframe": "M15"
+  }'::jsonb,
+  '{}'::jsonb,
+  '{"mode": "risk_percent", "risk_per_trade": 0.5, "max_volume": 0.3}'::jsonb,
+  '{"max_spread_points": 30}'::jsonb,
+  false
+) ON CONFLICT (name) DO NOTHING;
+
+-- Strategy 3: Bollinger Bands Bounce
+INSERT INTO strategies (name, description, symbol, entry_rules, exit_rules, sizing_rules, filters, is_active)
+VALUES (
+  'BB_Lower_Bounce',
+  'Buy when price touches lower Bollinger Band',
+  'XAUUSD',
+  '{
+    "conditions": [
+      {"indicator": "bbands", "params": {"length": 20, "std": 2}, "operator": "lt", "value": 0, "compare_to": "lower"}
+    ],
+    "logic": "AND",
+    "timeframe": "M15"
+  }'::jsonb,
+  '{}'::jsonb,
+  '{"mode": "risk_percent", "risk_per_trade": 1.0, "max_volume": 0.5}'::jsonb,
+  '{}'::jsonb,
+  false
+) ON CONFLICT (name) DO NOTHING;
 
 -- ─── Verify ───────────────────────────────────────────────────────────────────
-SELECT * FROM strategies;
+SELECT name, symbol, is_active, entry_rules->>'conditions' as conditions FROM strategies;

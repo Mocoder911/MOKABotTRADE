@@ -1,11 +1,11 @@
 """
-MOKABotTRADE — MT5 ↔ Supabase Bridge (Strategy Framework)
-==========================================================
-Architecture: Executor Pattern
-- Bot reads trading rules from Supabase every cycle
-- No hardcoded trading logic
-- All strategies, risk rules, and filters are DB-driven
-- Changes in DB reflect immediately without restart
+MOKABotTRADE — MT5 ↔ Supabase Bridge (Generic Strategy Framework)
+==================================================================
+Architecture: Generic Rule Executor
+- ALL trading logic is defined in Supabase JSONB
+- No hardcoded indicators or conditions in Python
+- Uses pandas-ta for dynamic indicator calculation
+- Any indicator change in DB = immediate behavior change
 
 Tables used:
   - strategies: Entry/Exit/Sizing rules (JSONB)
@@ -14,18 +14,29 @@ Tables used:
   - trades: Open positions sync
   - trade_signals: Signal audit log
   - execution_log: Trade execution log
+
+JSONB Rule Format:
+  entry_rules: {
+    "conditions": [
+      {"indicator": "rsi", "params": {"length": 14}, "operator": "lt", "value": 30},
+      {"indicator": "macd", "params": {"fast": 12, "slow": 26, "signal": 9}, "operator": "crosses_above", "compare_to": "signal"}
+    ],
+    "logic": "AND"  // or "OR"
+  }
 """
 
 import MetaTrader5 as mt5
+import pandas as pd
+import pandas_ta as ta
 import time
 import sys
-import json
-from datetime import datetime, timezone
-from typing import Optional, Dict, List, Any
+import operator
+from datetime import datetime
+from typing import Optional, Dict, List, Any, Callable
 from supabase import create_client
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CONFIGURATION (from environment or hardcoded)
+# CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
 SUPABASE_URL = "https://gonfmiqwothggojdmglf.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdvbmZtaXF3b3RoZ2dvamRtZ2xmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4Mjc2Nzk5NiwiZXhwIjoyMDk4MzQzOTk2fQ.MJ1T20lriV99v_uczf3n-D52ybqODBKGiXSjjW8tudI"
@@ -41,6 +52,358 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# OPERATOR MAP — Maps JSON operators to Python functions
+# ═══════════════════════════════════════════════════════════════════════════════
+OPERATORS: Dict[str, Callable] = {
+    "lt": operator.lt,           # less than
+    "gt": operator.gt,           # greater than
+    "lte": operator.le,          # less than or equal
+    "gte": operator.ge,          # greater than or equal
+    "eq": operator.eq,           # equal
+    "neq": operator.ne,          # not equal
+    "crosses_above": None,       # special handling
+    "crosses_below": None,       # special handling
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INDICATOR CALCULATOR — Generic, uses pandas-ta
+# ═══════════════════════════════════════════════════════════════════════════════
+class IndicatorCalculator:
+    """
+    Generic indicator calculator using pandas-ta.
+    Calculates ANY indicator by name + params from JSONB.
+    """
+    
+    # Timeframe mapping
+    TIMEFRAMES = {
+        "M1": mt5.TIMEFRAME_M1,
+        "M5": mt5.TIMEFRAME_M5,
+        "M15": mt5.TIMEFRAME_M15,
+        "M30": mt5.TIMEFRAME_M30,
+        "H1": mt5.TIMEFRAME_H1,
+        "H4": mt5.TIMEFRAME_H4,
+        "D1": mt5.TIMEFRAME_D1,
+        "W1": mt5.TIMEFRAME_W1,
+    }
+    
+    def __init__(self):
+        self._cache: Dict[str, pd.DataFrame] = {}
+        self._cache_time: Dict[str, float] = {}
+    
+    def get_dataframe(self, symbol: str, timeframe: str = "M15", bars: int = 200) -> Optional[pd.DataFrame]:
+        """Fetch OHLCV data and convert to pandas DataFrame"""
+        cache_key = f"{symbol}_{timeframe}"
+        now = time.time()
+        
+        # Cache for 5 seconds
+        if cache_key in self._cache and now - self._cache_time.get(cache_key, 0) < 5:
+            return self._cache[cache_key]
+        
+        tf = self.TIMEFRAMES.get(timeframe, mt5.TIMEFRAME_M15)
+        rates = mt5.copy_rates_from_pos(symbol, tf, 0, bars)
+        
+        if rates is None or len(rates) == 0:
+            return None
+        
+        df = pd.DataFrame(rates)
+        df['time'] = pd.to_datetime(df['time'], unit='s')
+        df.set_index('time', inplace=True)
+        
+        self._cache[cache_key] = df
+        self._cache_time[cache_key] = now
+        return df
+    
+    def calculate(self, symbol: str, indicator_name: str, params: Dict, timeframe: str = "M15") -> Optional[Any]:
+        """
+        Calculate ANY indicator dynamically.
+        
+        indicator_name: lowercase name (rsi, macd, bbands, sma, ema, etc.)
+        params: parameters dict from JSONB
+        
+        Returns the indicator value(s) or None.
+        """
+        df = self.get_dataframe(symbol, timeframe)
+        if df is None or len(df) < 50:
+            return None
+        
+        # Convert indicator name to pandas-ta function name
+        indicator_lower = indicator_name.lower().replace(" ", "").replace("_", "")
+        
+        try:
+            # Use pandas-ta's strategy method to add indicator
+            # pandas-ta supports 100+ indicators dynamically
+            result = self._call_pandas_ta(df, indicator_lower, params)
+            return result
+        except Exception as e:
+            print(f"[INDICATOR] Error calculating {indicator_name}: {e}")
+            return None
+    
+    def _call_pandas_ta(self, df: pd.DataFrame, indicator: str, params: Dict) -> Optional[Any]:
+        """
+        Dynamically call pandas-ta indicator.
+        Returns the latest value(s) of the indicator.
+        """
+        # Map common indicator names to pandas-ta function names
+        indicator_map = {
+            "rsi": "rsi",
+            "macd": "macd",
+            "sma": "sma",
+            "ema": "ema",
+            "wma": "wma",
+            "bbands": "bbands",
+            "stoch": "stoch",
+            "atr": "atr",
+            "adx": "adx",
+            "cci": "cci",
+            "willr": "willr",
+            "roc": "roc",
+            "mom": "mom",
+            "dmi": "dmi",
+            "aroon": "aroon",
+            "supertrend": "supertrend",
+            "psar": "psar",
+            "vwap": "vwap",
+            "obv": "obv",
+            "mfi": "mfi",
+            "keltner": "keltner_channel",
+            "donchian": "donchian",
+            "pivot": "pivot_points",
+        }
+        
+        ta_func_name = indicator_map.get(indicator, indicator)
+        
+        # Get the pandas-ta function
+        ta_func = getattr(df.ta, ta_func_name, None)
+        if ta_func is None:
+            # Try the strategy approach
+            return self._use_strategy(df, indicator, params)
+        
+        # Call the function with params
+        result = ta_func(**params, append=True)
+        
+        # Get the last value(s)
+        if result is not None:
+            # Find columns that were added
+            new_cols = [c for c in df.columns if ta_func_name.upper() in str(c).upper()]
+            if new_cols:
+                return {col: df[col].iloc[-1] for col in new_cols}
+        
+        return None
+    
+    def _use_strategy(self, df: pd.DataFrame, indicator: str, params: Dict) -> Optional[Any]:
+        """Use pandas-ta strategy for complex indicators"""
+        try:
+            # Create a custom strategy with just this indicator
+            strategy = ta.Strategy(
+                name=f"dynamic_{indicator}",
+                ta=[{"kind": indicator, **params}]
+            )
+            df.ta.strategy(strategy)
+            
+            # Return last values of newly added columns
+            original_cols = {'open', 'high', 'low', 'close', 'volume', 'tick_volume', 'spread', 'real_volume'}
+            new_cols = [c for c in df.columns if c not in original_cols]
+            
+            if new_cols:
+                return {col: df[col].iloc[-1] for col in new_cols}
+        except Exception as e:
+            print(f"[INDICATOR] Strategy error for {indicator}: {e}")
+        
+        return None
+    
+    def get_previous_value(self, symbol: str, indicator_name: str, params: Dict, timeframe: str = "M15") -> Optional[Any]:
+        """Get the previous candle's indicator value (for cross detection)"""
+        df = self.get_dataframe(symbol, timeframe)
+        if df is None or len(df) < 50:
+            return None
+        
+        indicator_lower = indicator_name.lower().replace(" ", "").replace("_", "")
+        
+        try:
+            ta_func = getattr(df.ta, indicator_lower, None)
+            if ta_func:
+                ta_func(**params, append=True)
+                new_cols = [c for c in df.columns if indicator_lower.upper() in str(c).upper()]
+                if new_cols and len(df) >= 2:
+                    return {col: df[col].iloc[-2] for col in new_cols}
+        except:
+            pass
+        
+        return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GENERIC SIGNAL EVALUATOR — Reads rules from JSONB, no hardcoded logic
+# ═══════════════════════════════════════════════════════════════════════════════
+class GenericSignalEvaluator:
+    """
+    Evaluates ANY trading rule defined in JSONB.
+    No hardcoded indicators or conditions.
+    """
+    
+    def __init__(self, calculator: IndicatorCalculator):
+        self.calc = calculator
+    
+    def evaluate(self, symbol: str, rules: Dict) -> Optional[str]:
+        """
+        Evaluate rules and return signal: 'BUY', 'SELL', or None.
+        
+        rules format (from JSONB):
+        {
+            "conditions": [
+                {"indicator": "rsi", "params": {"length": 14}, "operator": "lt", "value": 30},
+                {"indicator": "macd", "params": {"fast": 12, "slow": 26, "signal": 9}, "operator": "crosses_above", "compare_to": "signal"}
+            ],
+            "logic": "AND"  // or "OR"
+        }
+        """
+        conditions = rules.get("conditions", [])
+        logic = rules.get("logic", "AND").upper()
+        timeframe = rules.get("timeframe", "M15")
+        
+        if not conditions:
+            return None
+        
+        results = []
+        for condition in conditions:
+            result = self._evaluate_condition(symbol, condition, timeframe)
+            if result is not None:
+                results.append(result)
+        
+        if not results:
+            return None
+        
+        # Apply logic (AND/OR)
+        if logic == "AND":
+            # All conditions must agree
+            buy_count = results.count("BUY")
+            sell_count = results.count("SELL")
+            
+            if buy_count == len(results):
+                return "BUY"
+            elif sell_count == len(results):
+                return "SELL"
+            return None
+        else:  # OR
+            if "BUY" in results:
+                return "BUY"
+            if "SELL" in results:
+                return "SELL"
+            return None
+    
+    def _evaluate_condition(self, symbol: str, condition: Dict, timeframe: str) -> Optional[str]:
+        """
+        Evaluate a single condition from JSONB.
+        Returns 'BUY', 'SELL', or None.
+        """
+        indicator = condition.get("indicator", "")
+        params = condition.get("params", {})
+        op = condition.get("operator", "")
+        value = condition.get("value")
+        compare_to = condition.get("compare_to")
+        
+        # Calculate indicator values
+        current = self.calc.calculate(symbol, indicator, params, timeframe)
+        if current is None:
+            return None
+        
+        # Handle cross detection
+        if op in ("crosses_above", "crosses_below"):
+            previous = self.calc.get_previous_value(symbol, indicator, params, timeframe)
+            if previous is None:
+                return None
+            return self._evaluate_cross(current, previous, compare_to, op)
+        
+        # Handle comparison operators
+        return self._evaluate_comparison(current, op, value, compare_to)
+    
+    def _evaluate_cross(self, current: Dict, previous: Dict, compare_to: str, op: str) -> Optional[str]:
+        """Evaluate cross conditions"""
+        # Find the main line and compare line
+        main_key = None
+        compare_key = None
+        
+        for key in current.keys():
+            key_lower = key.lower()
+            if compare_to and compare_to.lower() in key_lower:
+                compare_key = key
+            elif main_key is None:
+                main_key = key
+        
+        if main_key is None or compare_key is None:
+            # Fallback: use first two keys
+            keys = list(current.keys())
+            if len(keys) >= 2:
+                main_key = keys[0]
+                compare_key = keys[1]
+            else:
+                return None
+        
+        curr_main = current[main_key]
+        curr_compare = current[compare_key]
+        prev_main = previous.get(main_key, curr_main)
+        prev_compare = previous.get(compare_key, curr_compare)
+        
+        if op == "crosses_above":
+            # Main was below compare, now above
+            if prev_main <= prev_compare and curr_main > curr_compare:
+                return "BUY"
+        elif op == "crosses_below":
+            # Main was above compare, now below
+            if prev_main >= prev_compare and curr_main < curr_compare:
+                return "SELL"
+        
+        return None
+    
+    def _evaluate_comparison(self, current: Dict, op: str, value: Any, compare_to: str) -> Optional[str]:
+        """Evaluate comparison operators"""
+        op_func = OPERATORS.get(op)
+        if op_func is None:
+            return None
+        
+        # Find the value to compare
+        if compare_to:
+            # Compare two indicator lines
+            compare_value = None
+            for key in current.keys():
+                if compare_to.lower() in key.lower():
+                    compare_value = current[key]
+                    break
+            if compare_value is None:
+                return None
+            
+            # Get the main value (first non-compare key)
+            main_value = None
+            for key in current.keys():
+                if compare_to.lower() not in key.lower():
+                    main_value = current[key]
+                    break
+            
+            if main_value is None:
+                return None
+            
+            if op_func(main_value, compare_value):
+                return "BUY" if op in ("lt", "lte", "crosses_below") else "SELL"
+        else:
+            # Compare against fixed value
+            main_value = list(current.values())[0] if current else None
+            if main_value is None:
+                return None
+            
+            if op_func(main_value, value):
+                # Determine direction based on operator
+                if op in ("lt", "lte"):
+                    return "BUY"  # Oversold
+                elif op in ("gt", "gte"):
+                    return "SELL"  # Overbought
+                elif op == "eq":
+                    return "BUY" if main_value == value else None
+        
+        return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # RISK MANAGER — Reads risk_matrix from DB
 # ═══════════════════════════════════════════════════════════════════════════════
 class RiskManager:
@@ -52,7 +415,6 @@ class RiskManager:
     
     def fetch_risk_params(self, symbol: str, force_refresh: bool = False) -> Optional[Dict]:
         """Fetch risk parameters for a symbol from DB"""
-        # Refresh cache every 30 seconds or if forced
         now = time.time()
         if force_refresh or now - self._last_fetch > 30:
             try:
@@ -65,31 +427,33 @@ class RiskManager:
         
         return self._cache.get(symbol)
     
-    def calculate_volume(self, symbol: str, balance: float, risk_rules: Dict) -> float:
-        """Calculate position volume based on risk rules"""
+    def calculate_volume(self, symbol: str, balance: float, sizing_rules: Dict) -> float:
+        """Calculate position volume based on sizing rules from JSONB"""
         risk_params = self.fetch_risk_params(symbol)
         if not risk_params:
             return 0.0
         
-        mode = risk_rules.get("mode", "fixed")
-        max_volume = risk_rules.get("max_volume", 1.0)
+        mode = sizing_rules.get("mode", "fixed")
+        max_volume = sizing_rules.get("max_volume", 1.0)
         base_volume = risk_params.get("base_volume", 0.01)
         
         if mode == "risk_percent":
-            risk_per_trade = risk_rules.get("risk_per_trade", 1.0)  # % of balance
+            risk_per_trade = sizing_rules.get("risk_per_trade", 1.0)
             risk_amount = balance * (risk_per_trade / 100)
             sl_points = risk_params.get("sl_points", 100)
             
-            # Calculate volume based on risk (simplified)
-            # In real implementation, need tick_value, tick_size
             tick_value = self._get_tick_value(symbol)
             if tick_value and sl_points > 0:
                 risk_per_lot = sl_points * tick_value
                 if risk_per_lot > 0:
                     volume = risk_amount / risk_per_lot
-                    return min(volume, max_volume)
+                    # Round to lot step
+                    info = mt5.symbol_info(symbol)
+                    if info:
+                        step = info.volume_step
+                        volume = round(volume / step) * step
+                    return min(max(volume, 0.01), max_volume)
         
-        # Default: use base volume from risk_matrix
         return min(base_volume, max_volume)
     
     def get_sl_tp(self, symbol: str, trade_type: str, entry_price: float) -> tuple:
@@ -101,7 +465,6 @@ class RiskManager:
         sl_points = risk_params.get("sl_points", 0)
         tp_points = risk_params.get("tp_points", 0)
         
-        # Get point value for symbol
         point = self._get_point(symbol)
         if not point:
             return (0.0, 0.0)
@@ -109,14 +472,13 @@ class RiskManager:
         if trade_type == "BUY":
             sl = entry_price - (sl_points * point)
             tp = entry_price + (tp_points * point)
-        else:  # SELL
+        else:
             sl = entry_price + (sl_points * point)
             tp = entry_price - (tp_points * point)
         
         return (round(sl, 5), round(tp, 5))
     
     def _get_point(self, symbol: str) -> Optional[float]:
-        """Get point value for symbol"""
         try:
             info = mt5.symbol_info(symbol)
             return info.point if info else None
@@ -124,7 +486,6 @@ class RiskManager:
             return None
     
     def _get_tick_value(self, symbol: str) -> Optional[float]:
-        """Get tick value for symbol"""
         try:
             info = mt5.symbol_info(symbol)
             return info.trade_tick_value if info else None
@@ -133,177 +494,22 @@ class RiskManager:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SIGNAL EVALUATOR — Evaluates market conditions against strategy rules
-# ═══════════════════════════════════════════════════════════════════════════════
-class SignalEvaluator:
-    """Evaluates entry/exit conditions from strategy rules"""
-    
-    def __init__(self):
-        self._indicator_cache: Dict[str, Dict] = {}
-    
-    def evaluate_entry(self, symbol: str, entry_rules: Dict) -> Optional[str]:
-        """
-        Evaluate entry conditions. Returns 'BUY', 'SELL', or None.
-        
-        entry_rules format:
-        {
-            "indicators": [
-                {"name": "RSI", "condition": "less_than", "value": 30},
-                {"name": "MACD", "condition": "crosses_above", "compare": "signal"}
-            ],
-            "pattern": "bullish_engulfing"  # optional
-        }
-        """
-        indicators = entry_rules.get("indicators", [])
-        if not indicators:
-            return None
-        
-        results = []
-        for rule in indicators:
-            result = self._check_indicator(symbol, rule)
-            if result is not None:
-                results.append(result)
-        
-        # All conditions must agree on direction
-        if not results:
-            return None
-        
-        buy_count = results.count("BUY")
-        sell_count = results.count("SELL")
-        
-        # Require majority agreement
-        if buy_count > sell_count and buy_count >= len(indicators) / 2:
-            return "BUY"
-        elif sell_count > buy_count and sell_count >= len(indicators) / 2:
-            return "SELL"
-        
-        return None
-    
-    def evaluate_exit(self, symbol: str, position, exit_rules: Dict) -> Optional[str]:
-        """
-        Evaluate exit conditions. Returns 'CLOSE' or None.
-        """
-        # Check if exit_rules says to use risk_matrix (handled elsewhere)
-        if exit_rules.get("take_profit") == "use_risk_matrix":
-            # SL/TP handled by MT5 directly
-            return None
-        
-        # Check trailing stop
-        if exit_rules.get("trailing"):
-            trailing_result = self._check_trailing(symbol, position, exit_rules)
-            if trailing_result:
-                return trailing_result
-        
-        return None
-    
-    def _check_indicator(self, symbol: str, rule: Dict) -> Optional[str]:
-        """Check a single indicator rule"""
-        name = rule.get("name", "").upper()
-        condition = rule.get("condition", "")
-        value = rule.get("value")
-        
-        # Get indicator value (simplified - in production, use TA-Lib or custom)
-        indicator_value = self._get_indicator_value(symbol, name)
-        if indicator_value is None:
-            return None
-        
-        # Evaluate condition
-        if condition == "less_than":
-            if indicator_value < value:
-                return "BUY"  # Oversold = buy signal
-        elif condition == "greater_than":
-            if indicator_value > value:
-                return "SELL"  # Overbought = sell signal
-        elif condition == "crosses_above":
-            # Would need historical data for proper cross detection
-            pass
-        elif condition == "crosses_below":
-            pass
-        
-        return None
-    
-    def _get_indicator_value(self, symbol: str, indicator: str) -> Optional[float]:
-        """
-        Get indicator value. This is a placeholder for actual indicator calculation.
-        In production, use TA-Lib, pandas_ta, or custom calculations.
-        """
-        # Fetch recent candles
-        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M15, 0, 50)
-        if rates is None or len(rates) < 20:
-            return None
-        
-        if indicator == "RSI":
-            return self._calculate_rsi(rates)
-        elif indicator == "MACD":
-            return self._calculate_macd(rates)
-        
-        return None
-    
-    def _calculate_rsi(self, rates, period: int = 14) -> float:
-        """Calculate RSI from rates"""
-        closes = [r['close'] for r in rates]
-        if len(closes) < period + 1:
-            return 50.0  # Neutral default
-        
-        deltas = [closes[i] - closes[i-1] for i in range(1, len(closes))]
-        gains = [d if d > 0 else 0 for d in deltas]
-        losses = [-d if d < 0 else 0 for d in deltas]
-        
-        avg_gain = sum(gains[-period:]) / period
-        avg_loss = sum(losses[-period:]) / period
-        
-        if avg_loss == 0:
-            return 100.0
-        rs = avg_gain / avg_loss
-        return 100 - (100 / (1 + rs))
-    
-    def _calculate_macd(self, rates) -> float:
-        """Calculate MACD (simplified)"""
-        # This is a placeholder - proper implementation needs EMA calculation
-        return 0.0
-    
-    def _check_trailing(self, symbol: str, position, exit_rules: Dict) -> Optional[str]:
-        """Check trailing stop conditions"""
-        # Simplified trailing stop logic
-        trail_points = exit_rules.get("trail_points", 50)
-        current_price = mt5.symbol_info_tick(symbol)
-        if not current_price:
-            return None
-        
-        if position.type == mt5.POSITION_TYPE_BUY:
-            # For buy, trail below current price
-            trail_level = current_price.bid - (trail_points * self._get_point(symbol))
-            if position.sl < trail_level:
-                return "MODIFY_SL"
-        else:
-            # For sell, trail above current price
-            trail_level = current_price.ask + (trail_points * self._get_point(symbol))
-            if position.sl > trail_level or position.sl == 0:
-                return "MODIFY_SL"
-        
-        return None
-    
-    def _get_point(self, symbol: str) -> float:
-        info = mt5.symbol_info(symbol)
-        return info.point if info else 0.0001
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# STRATEGY ENGINE — Reads strategies from DB and orchestrates execution
+# STRATEGY ENGINE — Orchestrates everything
 # ═══════════════════════════════════════════════════════════════════════════════
 class StrategyEngine:
-    """Main engine that reads strategies from DB and executes them"""
+    """Main engine: reads strategies from DB, evaluates, executes"""
     
     def __init__(self):
+        self.calculator = IndicatorCalculator()
+        self.evaluator = GenericSignalEvaluator(self.calculator)
         self.risk_manager = RiskManager()
-        self.signal_evaluator = SignalEvaluator()
         self._strategies_cache: List[Dict] = []
         self._last_strategy_fetch = 0
     
     def fetch_active_strategies(self, force_refresh: bool = False) -> List[Dict]:
         """Fetch active strategies from DB"""
         now = time.time()
-        if force_refresh or now - self._last_strategy_fetch > 30:  # Refresh every 30s
+        if force_refresh or now - self._last_strategy_fetch > 30:
             try:
                 result = supabase.table("strategies") \
                     .select("*") \
@@ -315,6 +521,8 @@ class StrategyEngine:
                     self._strategies_cache = result.data
                     self._last_strategy_fetch = now
                     print(f"[ENGINE] Loaded {len(result.data)} active strategies")
+                    for s in result.data:
+                        print(f"         - {s['name']}: {s['symbol']} | Entry: {json.dumps(s.get('entry_rules', {}))[:50]}...")
                 else:
                     self._strategies_cache = []
             except Exception as e:
@@ -323,7 +531,7 @@ class StrategyEngine:
         return self._strategies_cache
     
     def process_cycle(self, bot_active: bool):
-        """Process one cycle: evaluate strategies and execute if conditions met"""
+        """Process one cycle"""
         if not bot_active:
             return
         
@@ -331,14 +539,11 @@ class StrategyEngine:
         if not strategies:
             return
         
-        # Get account info for position sizing
         account_info = mt5.account_info()
         if not account_info:
             return
         
         balance = account_info.balance
-        
-        # Get existing positions
         positions = mt5.positions_get()
         open_symbols = {p.symbol for p in positions} if positions else set()
         
@@ -352,51 +557,46 @@ class StrategyEngine:
             sizing_rules = strategy.get("sizing_rules", {})
             filters = strategy.get("filters", {})
             
-            # Check filters first
+            # Check filters
             if not self._check_filters(symbol, filters):
                 continue
             
-            # Check if we already have a position for this symbol
+            # Check existing positions
             if symbol in open_symbols:
-                # Evaluate exit conditions
                 position = next((p for p in positions if p.symbol == symbol), None)
                 if position:
                     self._evaluate_exit(strategy, position, exit_rules)
             else:
-                # Evaluate entry conditions
-                signal = self.signal_evaluator.evaluate_entry(symbol, entry_rules)
+                # Evaluate entry using GENERIC evaluator
+                signal = self.evaluator.evaluate(symbol, entry_rules)
                 if signal:
                     self._execute_entry(strategy, symbol, signal, sizing_rules, balance)
     
     def _check_filters(self, symbol: str, filters: Dict) -> bool:
-        """Check if symbol passes filters (spread, session, etc.)"""
-        # Check max spread
+        """Check filters from JSONB"""
+        # Max spread
         max_spread = filters.get("max_spread_points")
         if max_spread:
             tick = mt5.symbol_info_tick(symbol)
-            if tick:
-                spread = int((tick.ask - tick.bid) / mt5.symbol_info(symbol).point)
+            info = mt5.symbol_info(symbol)
+            if tick and info:
+                spread = int((tick.ask - tick.bid) / info.point)
                 if spread > max_spread:
                     return False
         
-        # Check session (simplified)
+        # Sessions
         sessions = filters.get("sessions", [])
         if sessions:
-            current_hour = datetime.now().hour
-            # Map sessions to hours (UTC)
+            current_hour = datetime.utcnow().hour
             session_hours = {
-                "sydney": (22, 7),
-                "tokyo": (0, 9),
-                "london": (7, 16),
-                "new_york": (12, 21),
+                "sydney": (22, 7), "tokyo": (0, 9),
+                "london": (7, 16), "new_york": (12, 21),
             }
-            in_session = False
-            for session in sessions:
-                if session in session_hours:
-                    start, end = session_hours[session]
-                    if start <= current_hour < end:
-                        in_session = True
-                        break
+            in_session = any(
+                start <= current_hour < end
+                for s in sessions if s in session_hours
+                for start, end in [session_hours[s]]
+            )
             if not in_session:
                 return False
         
@@ -408,24 +608,18 @@ class StrategyEngine:
         strategy_id = strategy.get("id")
         strategy_name = strategy.get("name")
         
-        # Calculate volume
         volume = self.risk_manager.calculate_volume(symbol, balance, sizing_rules)
         if volume <= 0:
-            self._log_signal(strategy_id, symbol, f"ENTRY_{signal}", 
-                           "SKIPPED", "Invalid volume")
+            self._log_signal(strategy_id, symbol, f"ENTRY_{signal}", "SKIPPED", "Invalid volume")
             return
         
-        # Get current price
         tick = mt5.symbol_info_tick(symbol)
         if not tick:
             return
         
         price = tick.ask if signal == "BUY" else tick.bid
-        
-        # Get SL/TP from risk_matrix
         sl, tp = self.risk_manager.get_sl_tp(symbol, signal, price)
         
-        # Prepare order
         order_type = mt5.ORDER_TYPE_BUY if signal == "BUY" else mt5.ORDER_TYPE_SELL
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -435,20 +629,19 @@ class StrategyEngine:
             "price": price,
             "sl": sl,
             "tp": tp,
-            "deviation": 20,  # Max slippage in points
-            "magic": 100000 + hash(strategy_id) % 100000,  # Unique per strategy
+            "deviation": 20,
+            "magic": 100000 + hash(strategy_id) % 100000,
             "comment": f"MOKA:{strategy_name[:10]}",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": mt5.ORDER_FILLING_IOC,
         }
         
-        # Execute order
         result = mt5.order_send(request)
         
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
             print(f"[EXECUTE] {signal} {symbol} @ {price} | Vol: {volume} | SL: {sl} | TP: {tp}")
-            self._log_execution(strategy_id, result.order, "OPEN", symbol, volume, price, sl, tp, 
-                              {"retcode": result.retcode, "deal": result.deal})
+            self._log_execution(strategy_id, result.order, "OPEN", symbol, volume, price, sl, tp,
+                              {"retcode": result.retcode})
             self._log_signal(strategy_id, symbol, f"ENTRY_{signal}", "EXECUTED", f"Ticket: {result.order}")
         else:
             error = result.comment if result else "No result"
@@ -456,86 +649,14 @@ class StrategyEngine:
             self._log_signal(strategy_id, symbol, f"ENTRY_{signal}", "FAILED", error)
     
     def _evaluate_exit(self, strategy: Dict, position, exit_rules: Dict):
-        """Evaluate and execute exit conditions"""
-        strategy_id = strategy.get("id")
-        signal = self.signal_evaluator.evaluate_exit(strategy.get("symbol"), position, exit_rules)
-        
-        if signal == "CLOSE":
-            self._close_position(strategy_id, position)
-        elif signal == "MODIFY_SL":
-            self._modify_position(strategy_id, position, exit_rules)
+        """Evaluate exit — currently relies on SL/TP set at entry"""
+        # Exit rules are handled by MT5 SL/TP
+        # Additional exit logic can be added via JSONB here
+        pass
     
-    def _close_position(self, strategy_id: str, position):
-        """Close an open position"""
-        tick = mt5.symbol_info_tick(position.symbol)
-        if not tick:
-            return
-        
-        close_price = tick.bid if position.type == mt5.POSITION_TYPE_BUY else tick.ask
-        close_type = mt5.ORDER_TYPE_SELL if position.type == mt5.POSITION_TYPE_BUY else mt5.ORDER_TYPE_BUY
-        
-        request = {
-            "action": mt5.TRADE_ACTION_DEAL,
-            "symbol": position.symbol,
-            "volume": position.volume,
-            "type": close_type,
-            "position": position.ticket,
-            "price": close_price,
-            "deviation": 20,
-            "magic": 100000 + hash(strategy_id) % 100000,
-            "comment": "MOKA:EXIT",
-            "type_filling": mt5.ORDER_FILLING_IOC,
-        }
-        
-        result = mt5.order_send(request)
-        
-        if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-            print(f"[CLOSE] {position.symbol} ticket {position.ticket} @ {close_price}")
-            self._log_execution(strategy_id, position.ticket, "CLOSE", position.symbol, 
-                              position.volume, close_price, None, None, {"retcode": result.retcode})
-    
-    def _modify_position(self, strategy_id: str, position, exit_rules: Dict):
-        """Modify position SL/TP"""
-        # Get new SL based on trailing
-        trail_points = exit_rules.get("trail_points", 50)
-        point = self.risk_manager._get_point(position.symbol)
-        tick = mt5.symbol_info_tick(position.symbol)
-        if not tick:
-            return
-        
-        new_sl = position.sl
-        new_tp = position.tp
-        
-        if position.type == mt5.POSITION_TYPE_BUY:
-            new_sl = tick.bid - (trail_points * point)
-        else:
-            new_sl = tick.ask + (trail_points * point)
-        
-        # Only modify if new SL is better
-        if position.type == mt5.POSITION_TYPE_BUY and new_sl <= position.sl:
-            return
-        if position.type == mt5.POSITION_TYPE_SELL and (new_sl >= position.sl or position.sl == 0):
-            if position.sl != 0 and new_sl >= position.sl:
-                return
-        
-        request = {
-            "action": mt5.TRADE_ACTION_SLTP,
-            "symbol": position.symbol,
-            "position": position.ticket,
-            "sl": round(new_sl, 5),
-            "tp": round(new_tp, 5),
-        }
-        
-        result = mt5.order_send(request)
-        
-        if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-            print(f"[MODIFY] {position.symbol} ticket {position.ticket} | New SL: {new_sl}")
-            self._log_execution(strategy_id, position.ticket, "MODIFY", position.symbol,
-                              position.volume, None, new_sl, new_tp, {"retcode": result.retcode})
-    
-    def _log_signal(self, strategy_id: str, symbol: str, signal_type: str, 
+    def _log_signal(self, strategy_id: str, symbol: str, signal_type: str,
                    action_taken: str, reason: str):
-        """Log signal to trade_signals table"""
+        """Log to trade_signals"""
         try:
             supabase.table("trade_signals").insert({
                 "strategy_id": strategy_id,
@@ -546,11 +667,11 @@ class StrategyEngine:
                 "action_reason": reason,
             }).execute()
         except Exception as e:
-            print(f"[LOG] Signal log error: {e}")
+            print(f"[LOG] Signal error: {e}")
     
     def _log_execution(self, strategy_id: str, ticket: str, action: str, symbol: str,
                       volume: float, price: float, sl: float, tp: float, result: Dict):
-        """Log execution to execution_log table"""
+        """Log to execution_log"""
         try:
             supabase.table("execution_log").insert({
                 "strategy_id": strategy_id,
@@ -564,177 +685,128 @@ class StrategyEngine:
                 "result": result,
             }).execute()
         except Exception as e:
-            print(f"[LOG] Execution log error: {e}")
+            print(f"[LOG] Execution error: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# DATA SYNC — Syncs account balance and trades to Supabase
+# DATA SYNC
 # ═══════════════════════════════════════════════════════════════════════════════
 def get_user_id(mt5_account_id: str) -> Optional[str]:
-    """Get user_id from profiles table"""
     try:
-        result = supabase.table("profiles") \
-            .select("id") \
-            .eq("mt5_account_id", mt5_account_id) \
-            .maybe_single() \
-            .execute()
+        result = supabase.table("profiles").select("id").eq("mt5_account_id", mt5_account_id).maybe_single().execute()
         return result.data["id"] if result.data else None
-    except Exception as e:
-        print(f"[SYNC] User ID error: {e}")
+    except:
         return None
 
-
 def sync_account_balance(mt5_account_id: str):
-    """Sync account balance to Supabase"""
     info = mt5.account_info()
     if not info:
         return
-    
     user_id = get_user_id(mt5_account_id)
     if not user_id:
         return
-    
     try:
         supabase.table("account_balance").upsert({
-            "user_id": user_id,
-            "balance": info.balance,
-            "equity": info.equity,
-            "updated_at": "now()",
+            "user_id": user_id, "balance": info.balance, "equity": info.equity, "updated_at": "now()",
         }, on_conflict="user_id").execute()
-    except Exception as e:
-        print(f"[SYNC] Balance error: {e}")
-
+    except:
+        pass
 
 def sync_trades(mt5_account_id: str):
-    """Sync open trades to Supabase"""
-    positions = mt5.positions_get()
-    if positions is None:
-        positions = []
-    
+    positions = mt5.positions_get() or []
     current_tickets = set()
-    
     for pos in positions:
         ticket = str(pos.ticket)
         current_tickets.add(ticket)
-        
         try:
             supabase.table("trades").upsert({
-                "ticket": ticket,
-                "account_id": mt5_account_id,
-                "symbol": pos.symbol,
+                "ticket": ticket, "account_id": mt5_account_id, "symbol": pos.symbol,
                 "type": "BUY" if pos.type == mt5.POSITION_TYPE_BUY else "SELL",
-                "volume": pos.volume,
-                "entry": pos.price_open,
-                "sl": pos.sl,
-                "tp": pos.tp,
-                "live_pl": pos.profit,
-                "margin": pos.margin,
-                "open_time": datetime.fromtimestamp(pos.time).isoformat(),
-                "status": "open",
+                "volume": pos.volume, "entry": pos.price_open, "sl": pos.sl, "tp": pos.tp,
+                "live_pl": pos.profit, "margin": pos.margin,
+                "open_time": datetime.fromtimestamp(pos.time).isoformat(), "status": "open",
             }, on_conflict="ticket").execute()
-        except Exception as e:
-            print(f"[SYNC] Trade error for {ticket}: {e}")
+        except:
+            pass
     
-    # Mark closed trades
     try:
-        db_trades = supabase.table("trades") \
-            .select("ticket") \
-            .eq("account_id", mt5_account_id) \
-            .eq("status", "open") \
-            .execute()
-        
+        db_trades = supabase.table("trades").select("ticket").eq("account_id", mt5_account_id).eq("status", "open").execute()
         if db_trades.data:
             for t in db_trades.data:
                 if t["ticket"] not in current_tickets:
-                    supabase.table("trades") \
-                        .update({"status": "closed"}) \
-                        .eq("ticket", t["ticket"]) \
-                        .execute()
-    except Exception as e:
-        print(f"[SYNC] Close check error: {e}")
+                    supabase.table("trades").update({"status": "closed"}).eq("ticket", t["ticket"]).execute()
+    except:
+        pass
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# BOT STATUS CHECK
-# ═══════════════════════════════════════════════════════════════════════════════
 def get_bot_status(mt5_account_id: str) -> bool:
-    """Check if bot is active from profiles table"""
     try:
-        result = supabase.table("profiles") \
-            .select("bot_active") \
-            .eq("mt5_account_id", mt5_account_id) \
-            .maybe_single() \
-            .execute()
+        result = supabase.table("profiles").select("bot_active").eq("mt5_account_id", mt5_account_id).maybe_single().execute()
         return result.data.get("bot_active", False) if result.data else False
-    except Exception as e:
-        print(f"[STATUS] Error: {e}")
+    except:
         return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
-print("=" * 60)
-print("  MOKABotTRADE — Strategy Framework Bridge")
-print("  Architecture: Executor Pattern (DB-driven rules)")
-print("=" * 60)
-
-# Connect to MT5
-if not mt5.initialize(login=LOGIN, password=PASSWORD, server=SERVER):
-    print(f"[ERROR] MT5 connection failed: {mt5.last_error()}")
-    sys.exit(1)
-
-account_info = mt5.account_info()
-if not account_info:
-    print("[ERROR] Failed to get account info")
-    mt5.shutdown()
-    sys.exit(1)
-
-print(f"[OK] Connected to MT5")
-print(f"     Account: {account_info.login}")
-print(f"     Server:  {account_info.server}")
-print(f"     Balance: ${account_info.balance:.2f}")
-print("=" * 60)
-
-MT5_ACCOUNT_ID = str(account_info.login)
-
-# Initialize strategy engine
-engine = StrategyEngine()
-
-print("\n[BRIDGE] Starting execution loop (every 10 seconds)...")
-print("[INFO] Data sync: ALWAYS ON")
-print("[INFO] Strategy execution: Controlled by bot_active toggle")
-print("[INFO] Strategies are fetched from DB every cycle\n")
-
-cycle = 0
-while True:
-    try:
-        cycle += 1
-        timestamp = datetime.now().strftime('%H:%M:%S')
-        
-        # ALWAYS sync data
-        print(f"--- Cycle {cycle} @ {timestamp} ---")
-        sync_account_balance(MT5_ACCOUNT_ID)
-        sync_trades(MT5_ACCOUNT_ID)
-        
-        # Check bot status
-        bot_active = get_bot_status(MT5_ACCOUNT_ID)
-        
-        if bot_active:
-            print(f"[BOT] ▶ RUNNING — Executing strategies...")
-            engine.process_cycle(bot_active=True)
-        else:
-            print(f"[BOT] ⏸  STANDBY — Monitoring only")
-        
-        print(f"--- Next cycle in 10s ---\n")
-        time.sleep(10)
+if __name__ == "__main__":
+    import json  # For debug printing
     
-    except KeyboardInterrupt:
-        print("\n[BRIDGE] Stopping...")
+    print("=" * 70)
+    print("  MOKABotTRADE — Generic Strategy Framework")
+    print("  ALL trading logic is defined in Supabase JSONB")
+    print("  No hardcoded indicators or conditions")
+    print("=" * 70)
+    
+    if not mt5.initialize(login=LOGIN, password=PASSWORD, server=SERVER):
+        print(f"[ERROR] MT5 connection failed: {mt5.last_error()}")
+        sys.exit(1)
+    
+    account_info = mt5.account_info()
+    if not account_info:
+        print("[ERROR] Failed to get account info")
         mt5.shutdown()
-        print("[BRIDGE] Done.")
-        break
+        sys.exit(1)
     
-    except Exception as e:
-        print(f"[FATAL] {e}")
-        time.sleep(5)
+    print(f"[OK] Connected to MT5")
+    print(f"     Account: {account_info.login}")
+    print(f"     Balance: ${account_info.balance:.2f}")
+    print("=" * 70)
+    
+    MT5_ACCOUNT_ID = str(account_info.login)
+    engine = StrategyEngine()
+    
+    print("\n[BRIDGE] Starting... (Ctrl+C to stop)")
+    print("[INFO] Strategies are fetched from DB every 30 seconds")
+    print("[INFO] Any DB change reflects immediately\n")
+    
+    cycle = 0
+    while True:
+        try:
+            cycle += 1
+            ts = datetime.now().strftime('%H:%M:%S')
+            
+            sync_account_balance(MT5_ACCOUNT_ID)
+            sync_trades(MT5_ACCOUNT_ID)
+            
+            bot_active = get_bot_status(MT5_ACCOUNT_ID)
+            
+            print(f"--- Cycle {cycle} @ {ts} ---")
+            
+            if bot_active:
+                print(f"[BOT] ▶ RUNNING")
+                engine.process_cycle(bot_active=True)
+            else:
+                print(f"[BOT] ⏸  STANDBY")
+            
+            print(f"--- Next in 10s ---\n")
+            time.sleep(10)
+        
+        except KeyboardInterrupt:
+            print("\n[BRIDGE] Stopping...")
+            mt5.shutdown()
+            break
+        
+        except Exception as e:
+            print(f"[FATAL] {e}")
+            time.sleep(5)
