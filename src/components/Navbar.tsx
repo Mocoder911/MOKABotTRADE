@@ -17,11 +17,11 @@ function MetricCard({ label, value, accent = "white" }: MetricCardProps) {
     cyan: "text-cyan-400 glow-cyan",
   };
   return (
-    <div className="flex flex-col items-center px-5 py-2">
-      <span className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-medium mb-1">
+    <div className="flex flex-col items-center px-6 py-3">
+      <span className="text-[11px] uppercase tracking-[0.2em] text-gray-500 font-medium mb-1.5">
         {label}
       </span>
-      <span className={`text-base font-bold font-mono ${colorMap[accent]}`}>
+      <span className={`text-lg font-bold font-mono ${colorMap[accent]}`}>
         {value}
       </span>
     </div>
@@ -42,24 +42,21 @@ export default function Navbar() {
 
   return (
     <nav className="sticky top-0 z-50 w-full bg-black/95 backdrop-blur-md border-b border-gray-800/60">
-      <div className="max-w-[1400px] mx-auto flex items-center justify-between h-16 px-6">
+      <div className="max-w-[1400px] mx-auto flex items-center justify-between h-20 px-6">
         {/* Left: Logo */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center shrink-0">
           <Image
             src="/mokabot-logo.png"
             alt="MokaBot Logo"
-            width={38}
-            height={38}
+            width={54}
+            height={54}
             className="object-contain h-auto"
             priority
           />
-          <span className="text-white font-bold text-xl tracking-tight glow-white">
-            Moka<span className="text-emerald-400 glow-green">Bot</span>
-          </span>
         </div>
 
         {/* Center: Trading Metrics */}
-        <div className="hidden md:flex items-center divide-x divide-gray-700/50 rounded-2xl bg-gray-900/40 border border-gray-800/50 px-2 py-1">
+        <div className="hidden md:flex items-center divide-x divide-gray-700/50 rounded-2xl bg-gray-900/40 border border-gray-800/50 px-3 py-1.5">
           <MetricCard label="Balance" value={metrics.balance} accent="cyan" />
           <MetricCard label="Equity" value={metrics.equity} accent="cyan" />
           <MetricCard
