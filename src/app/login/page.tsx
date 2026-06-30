@@ -39,8 +39,8 @@ function LoginForm() {
       return;
     }
 
-    router.push(redirect);
-    router.refresh();
+    // Full page reload to sync auth state with middleware
+    window.location.href = redirect;
   }
 
   return (

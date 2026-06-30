@@ -151,11 +151,18 @@ function TabButton({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function HomePage() {
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, user, loading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !user) {
+      window.location.href = "/login";
+    }
+  }, [user, authLoading]);
 
   const isAdmin = profile?.role === "admin";
   const isActive = profile?.status === "active";
