@@ -36,7 +36,7 @@ export default function SignupPage() {
       return;
     }
 
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -50,7 +50,16 @@ export default function SignupPage() {
     });
 
     if (error) {
-      setError(error.message);
+      console.error("Signup error:", error);
+      setError(error.message || "An unexpected error occurred. Please try again.");
+      setLoading(false);
+      return;
+    }
+
+    // Check if user was created but profile trigger might have failed
+    if (data?.user && !data.session) {
+      // Email confirmation required (if enabled)
+      setSuccess(true);
       setLoading(false);
       return;
     }
@@ -257,7 +266,7 @@ export default function SignupPage() {
 
             {error && (
               <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3 text-rose-400 text-sm">
-                {error}
+                {typeof error === 'string' ? error : JSON.stringify(error)}
               </div>
             )}
 
