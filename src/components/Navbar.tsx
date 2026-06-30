@@ -154,15 +154,28 @@ export default function Navbar() {
             </div>
           )}
 
-          {/* Bot Status */}
+          {/* Bot Status — reflects real bot_active state */}
           <div className="flex items-center gap-2">
-            <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-            </span>
-            <span className="animate-pulse-glow text-emerald-400 font-bold text-sm tracking-wider">
-              ● LIVE
-            </span>
+            {profile?.bot_active ? (
+              <>
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                </span>
+                <span className="animate-pulse-glow text-emerald-400 font-bold text-sm tracking-wider">
+                  ● LIVE
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="relative flex h-3 w-3">
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-gray-500"></span>
+                </span>
+                <span className="text-gray-500 font-bold text-sm tracking-wider">
+                  ● OFFLINE
+                </span>
+              </>
+            )}
           </div>
 
           {/* Refresh Metrics */}
