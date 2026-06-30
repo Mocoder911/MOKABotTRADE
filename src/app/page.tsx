@@ -151,12 +151,35 @@ function TabButton({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function HomePage() {
-  const { profile, user, loading: authLoading } = useAuth();
+  const { profile, user, loading: authLoading, refreshProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [redirected, setRedirected] = useState(false);
+  const [botToggling, setBotToggling] = useState(false);
+
+  // Bot toggle handler
+  const handleBotToggle = async () => {
+    if (!profile || botToggling) return;
+    setBotToggling(true);
+    try {
+      const res = await fetch("/api/profiles", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: profile.id,
+          bot_active: !profile.bot_active,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await refreshProfile();
+    } catch (err) {
+      console.error("Bot toggle failed:", err);
+    } finally {
+      setBotToggling(false);
+    }
+  };
 
   // All hooks must be defined BEFORE any early returns
   const fetchTrades = useCallback(async () => {
@@ -286,10 +309,40 @@ export default function HomePage() {
               </h1>
               <p className="text-sm text-gray-500 mt-1.5">
                 Real-time positions from Exness MT5 &bull; Account{" "}
-                <span className="text-gray-400 font-mono">260904217</span>
+                <span className="text-gray-400 font-mono">{profile?.mt5_account_id || "260904217"}</span>
               </p>
             </div>
             <div className="flex items-center gap-3">
+              {/* Bot Status Toggle */}
+              <div className="flex items-center gap-3 px-4 py-2 rounded-xl border border-gray-800/50 bg-gray-900/30">
+                <span className="text-[10px] uppercase tracking-[0.15em] text-gray-500 font-medium">Bot Status</span>
+                <button
+                  onClick={handleBotToggle}
+                  disabled={botToggling}
+                  className={`relative w-12 h-6 rounded-full transition-all duration-300 ${
+                    profile?.bot_active
+                      ? "bg-emerald-500/30 border border-emerald-500/50 glow-green"
+                      : "bg-rose-500/20 border border-rose-500/30"
+                  }`}
+                >
+                  <div
+                    className={`absolute top-0.5 w-5 h-5 rounded-full transition-all duration-300 ${
+                      profile?.bot_active
+                        ? "left-6 bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]"
+                        : "left-0.5 bg-rose-400"
+                    }`}
+                  />
+                </button>
+                <span
+                  className={`text-xs font-bold tracking-wide ${
+                    profile?.bot_active
+                      ? "text-emerald-400 glow-green"
+                      : "text-rose-400/70"
+                  }`}
+                >
+                  {profile?.bot_active ? "RUNNING" : "STOPPED"}
+                </span>
+              </div>
               <button
                 onClick={() => exportCSV(trades)}
                 disabled={trades.length === 0}

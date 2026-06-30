@@ -9,6 +9,9 @@ interface Profile {
   full_name: string;
   role: "admin" | "user";
   status: "pending" | "active" | "suspended";
+  mt5_account_id?: string;
+  mt5_server?: string;
+  bot_active?: boolean;
   created_at: string;
 }
 
@@ -197,11 +200,13 @@ export default function UserManagement() {
 
       {/* ─── Profiles Table ───────────────────────────────────────────────── */}
       <div className="overflow-x-auto rounded-2xl border border-gray-800/50 bg-gray-950/40">
-        <table className="w-full min-w-[800px]">
+        <table className="w-full min-w-[1100px]">
           <thead>
             <tr className="bg-gray-900/50">
               <Th>Full Name</Th>
               <Th>Email</Th>
+              <Th>MT5 Account</Th>
+              <Th>MT5 Server</Th>
               <Th>Role</Th>
               <Th>Status</Th>
               <Th>Joined</Th>
@@ -211,7 +216,7 @@ export default function UserManagement() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} className="text-center py-20 text-gray-600">
+                <td colSpan={8} className="text-center py-20 text-gray-600">
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-7 h-7 border-2 border-gray-700 border-t-cyan-500 rounded-full animate-spin"></div>
                     <span className="text-sm text-gray-500">Loading users...</span>
@@ -220,7 +225,7 @@ export default function UserManagement() {
               </tr>
             ) : profiles.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-center py-20 text-gray-600">
+                <td colSpan={8} className="text-center py-20 text-gray-600">
                   <div className="flex flex-col items-center gap-3">
                     <span className="text-5xl opacity-40">👥</span>
                     <span className="text-sm text-gray-500">No users found</span>
@@ -235,6 +240,8 @@ export default function UserManagement() {
                 >
                   <Td className="text-white font-semibold">{profile.full_name}</Td>
                   <Td className="text-gray-400">{profile.email}</Td>
+                  <Td className="text-cyan-400 font-mono text-xs">{profile.mt5_account_id || "—"}</Td>
+                  <Td className="text-gray-500 font-mono text-xs">{profile.mt5_server || "—"}</Td>
                   <Td>
                     <NeonSelect
                       value={edits[profile.id]?.role ?? profile.role}

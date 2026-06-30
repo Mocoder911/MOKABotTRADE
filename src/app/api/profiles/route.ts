@@ -21,7 +21,7 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   const supabase = getSupabase();
   const body = await request.json();
-  const { id, role, status } = body;
+  const { id, role, status, bot_active } = body;
 
   if (!id) {
     return NextResponse.json({ error: "Profile ID is required" }, { status: 400 });
@@ -30,6 +30,7 @@ export async function PUT(request: NextRequest) {
   const updateData: Record<string, unknown> = {};
   if (role !== undefined) updateData.role = role;
   if (status !== undefined) updateData.status = status;
+  if (bot_active !== undefined) updateData.bot_active = bot_active;
 
   const { data, error } = await supabase
     .from("profiles")

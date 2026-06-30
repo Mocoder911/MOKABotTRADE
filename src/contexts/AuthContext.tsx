@@ -11,6 +11,10 @@ export interface Profile {
   full_name: string;
   role: "admin" | "user";
   status: "pending" | "active" | "suspended";
+  mt5_account_id?: string;
+  mt5_password?: string;
+  mt5_server?: string;
+  bot_active?: boolean;
   created_at: string;
 }
 
