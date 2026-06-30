@@ -3,6 +3,8 @@
 import React, { useEffect, useState, useCallback } from "react";
 import TacticsStudio from "./tactics/TacticsStudio";
 import MarketAnalysis from "./market/MarketAnalysis";
+import UserManagement from "./admin/UserManagement";
+import { useAuth } from "@/contexts/AuthContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Trade {
@@ -17,7 +19,7 @@ interface Trade {
   openTime: string;
 }
 
-type TabId = "dashboard" | "tactics" | "market";
+type TabId = "dashboard" | "tactics" | "market" | "admin";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function plColor(value: number): string {
@@ -149,10 +151,51 @@ function TabButton({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function HomePage() {
+  const { profile, loading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const isAdmin = profile?.role === "admin";
+  const isActive = profile?.status === "active";
+
+  // Show pending/suspended message
+  if (!authLoading && profile && !isActive) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-400">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-white glow-white mb-2">
+            Account {profile.status === "pending" ? "Pending Approval" : "Suspended"}
+          </h2>
+          <p className="text-sm text-gray-400">
+            {profile.status === "pending"
+              ? "Your account is pending admin approval. You will be notified once activated."
+              : "Your account has been suspended. Please contact an administrator."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading while auth is initializing
+  if (authLoading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-gray-700 border-t-cyan-500 rounded-full animate-spin"></div>
+          <span className="text-sm text-gray-500">Loading dashboard...</span>
+        </div>
+      </div>
+    );
+  }
 
   const fetchTrades = useCallback(async () => {
     try {
@@ -190,20 +233,33 @@ export default function HomePage() {
         >
           Trading Journal
         </TabButton>
-        <TabButton
-          active={activeTab === "tactics"}
-          onClick={() => setActiveTab("tactics")}
-          glowClass="text-emerald-400 glow-green"
-        >
-          Tactics Studio
-        </TabButton>
+        {/* Tactics Studio - Admin only */}
+        {isAdmin && (
+          <TabButton
+            active={activeTab === "tactics"}
+            onClick={() => setActiveTab("tactics")}
+            glowClass="text-emerald-400 glow-green"
+          >
+            Tactics Studio
+          </TabButton>
+        )}
         <TabButton
           active={activeTab === "market"}
           onClick={() => setActiveTab("market")}
           glowClass="text-violet-400 glow-violet"
         >
-          Market Analysis
+          Live
         </TabButton>
+        {/* User Management - Admin only */}
+        {isAdmin && (
+          <TabButton
+            active={activeTab === "admin"}
+            onClick={() => setActiveTab("admin")}
+            glowClass="text-amber-400"
+          >
+            User Management
+          </TabButton>
+        )}
       </div>
 
       {/* ─── Tab Content ──────────────────────────────────────────────────── */}
@@ -360,6 +416,8 @@ export default function HomePage() {
         </div>
       ) : activeTab === "tactics" ? (
         <TacticsStudio />
+      ) : activeTab === "admin" ? (
+        <UserManagement />
       ) : (
         <MarketAnalysis />
       )}

@@ -2,6 +2,8 @@
 
 import React from "react";
 import Image from "next/image";
+import { useAuth } from "@/contexts/AuthContext";
+import { usePathname } from "next/navigation";
 
 interface MetricCardProps {
   label: string;
@@ -29,6 +31,14 @@ function MetricCard({ label, value, accent = "white" }: MetricCardProps) {
 }
 
 export default function Navbar() {
+  const { profile, signOut } = useAuth();
+  const pathname = usePathname();
+
+  // Hide navbar on auth pages
+  if (pathname === "/login" || pathname === "/signup") {
+    return null;
+  }
+
   // Placeholder metrics — will be replaced with live Supabase data
   const metrics = {
     balance: "$10,000.00",
@@ -68,15 +78,43 @@ export default function Navbar() {
           <MetricCard label="Positions" value={metrics.position} accent="cyan" />
         </div>
 
-        {/* Right: Bot Status */}
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="relative flex h-3 w-3">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-          </span>
-          <span className="animate-pulse-glow text-emerald-400 font-bold text-sm tracking-wider">
-            ● LIVE
-          </span>
+        {/* Right: User Info + Status */}
+        <div className="flex items-center gap-4 shrink-0">
+          {/* User info */}
+          {profile && (
+            <div className="hidden lg:flex flex-col items-end">
+              <span className="text-sm font-medium text-white">{profile.full_name}</span>
+              <span className="text-[10px] uppercase tracking-wider text-gray-500">
+                {profile.role} • {profile.status}
+              </span>
+            </div>
+          )}
+
+          {/* Bot Status */}
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            </span>
+            <span className="animate-pulse-glow text-emerald-400 font-bold text-sm tracking-wider">
+              ● LIVE
+            </span>
+          </div>
+
+          {/* Sign out */}
+          {profile && (
+            <button
+              onClick={signOut}
+              className="text-xs text-gray-500 hover:text-rose-400 border border-gray-800 hover:border-rose-500/30 rounded-lg px-3 py-1.5 transition-all duration-200"
+              title="Sign Out"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
