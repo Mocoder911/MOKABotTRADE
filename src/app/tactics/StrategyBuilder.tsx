@@ -346,31 +346,31 @@ export default function StrategyBuilder() {
           {/* Basic Info */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div className="flex flex-col gap-2">
-              <label className="text-xs uppercase tracking-wider text-gray-400 font-medium">Name *</label>
+              <label className="text-sm font-medium text-gray-400">Name *</label>
               <input
                 type="text"
                 value={builderName}
                 onChange={(e) => setBuilderName(e.target.value)}
                 placeholder="My Strategy"
-                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-4 py-3 text-sm text-gray-300 focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 outline-none transition-all"
+                className="bg-gray-800 border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-green-500 text-gray-300 outline-none transition-all"
               />
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-xs uppercase tracking-wider text-gray-400 font-medium">Symbol *</label>
+              <label className="text-sm font-medium text-gray-400">Symbol *</label>
               <input
                 type="text"
                 value={builderSymbol}
                 onChange={(e) => setBuilderSymbol(e.target.value)}
                 placeholder="XAUUSD"
-                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-4 py-3 text-sm text-gray-300 focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 outline-none transition-all"
+                className="bg-gray-800 border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-green-500 text-gray-300 outline-none transition-all"
               />
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-xs uppercase tracking-wider text-gray-400 font-medium">Timeframe</label>
+              <label className="text-sm font-medium text-gray-400">Timeframe</label>
               <select
                 value={builderTimeframe}
                 onChange={(e) => setBuilderTimeframe(e.target.value)}
-                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-4 py-3 text-sm text-gray-300 focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 outline-none transition-all"
+                className="bg-gray-800 border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-green-500 text-gray-300 outline-none transition-all"
               >
                 {TIMEFRAMES.map((tf) => (
                   <option key={tf} value={tf}>{tf}</option>
@@ -381,13 +381,13 @@ export default function StrategyBuilder() {
 
           {/* Description */}
           <div className="mb-8">
-            <label className="text-xs uppercase tracking-wider text-gray-400 font-medium block mb-2">Description</label>
+            <label className="text-sm font-medium text-gray-400 block mb-2">Description</label>
             <input
               type="text"
               value={builderDesc}
               onChange={(e) => setBuilderDesc(e.target.value)}
               placeholder="Optional description"
-              className="w-full bg-gray-900/60 border border-gray-700/50 rounded-lg px-4 py-3 text-sm text-gray-300 focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 outline-none transition-all"
+              className="w-full bg-gray-800 border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-green-500 text-gray-300 outline-none transition-all"
             />
           </div>
 
@@ -527,32 +527,32 @@ export default function StrategyBuilder() {
           {/* Risk & Filters */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div className="flex flex-col gap-2">
-              <label className="text-xs uppercase tracking-wider text-emerald-400/70 font-medium">Risk % per Trade</label>
+              <label className="text-sm font-medium text-gray-400">Risk % per Trade</label>
               <input
                 type="number"
                 step="0.1"
                 value={riskPerTrade}
                 onChange={(e) => setRiskPerTrade(parseFloat(e.target.value))}
-                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-4 py-3 text-sm text-gray-300 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
+                className="bg-gray-800 border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-green-500 text-gray-300 outline-none transition-all"
               />
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-xs uppercase tracking-wider text-emerald-400/70 font-medium">Max Volume</label>
+              <label className="text-sm font-medium text-gray-400">Max Volume</label>
               <input
                 type="number"
                 step="0.01"
                 value={maxVolume}
                 onChange={(e) => setMaxVolume(parseFloat(e.target.value))}
-                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-4 py-3 text-sm text-gray-300 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
+                className="bg-gray-800 border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-green-500 text-gray-300 outline-none transition-all"
               />
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-xs uppercase tracking-wider text-emerald-400/70 font-medium">Max Spread (pts)</label>
+              <label className="text-sm font-medium text-gray-400">Max Spread (pts)</label>
               <input
                 type="number"
                 value={maxSpread}
                 onChange={(e) => setMaxSpread(parseInt(e.target.value))}
-                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-4 py-3 text-sm text-gray-300 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
+                className="bg-gray-800 border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-green-500 text-gray-300 outline-none transition-all"
               />
             </div>
           </div>
