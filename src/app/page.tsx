@@ -158,6 +158,21 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [redirected, setRedirected] = useState(false);
 
+  // All hooks must be defined BEFORE any early returns
+  const fetchTrades = useCallback(async () => {
+    try {
+      const res = await fetch("/api/trades/active");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      setTrades(json.trades);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch trades");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   // Redirect to login if not authenticated (only once)
   useEffect(() => {
     if (!authLoading && !user && !redirected) {
@@ -166,8 +181,27 @@ export default function HomePage() {
     }
   }, [user, authLoading, redirected]);
 
+  // Fetch trades when authenticated
+  useEffect(() => {
+    if (!authLoading && user) {
+      fetchTrades();
+    }
+  }, [fetchTrades, authLoading, user]);
+
   const isAdmin = profile?.role === "admin";
   const isActive = profile?.status === "active";
+
+  // Show loading while auth is initializing
+  if (authLoading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-gray-700 border-t-cyan-500 rounded-full animate-spin"></div>
+          <span className="text-sm text-gray-500">Loading dashboard...</span>
+        </div>
+      </div>
+    );
+  }
 
   // Show pending/suspended message
   if (!authLoading && profile && !isActive) {
@@ -193,36 +227,6 @@ export default function HomePage() {
       </div>
     );
   }
-
-  // Show loading while auth is initializing
-  if (authLoading) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-gray-700 border-t-cyan-500 rounded-full animate-spin"></div>
-          <span className="text-sm text-gray-500">Loading dashboard...</span>
-        </div>
-      </div>
-    );
-  }
-
-  const fetchTrades = useCallback(async () => {
-    try {
-      const res = await fetch("/api/trades/active");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      setTrades(json.trades);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch trades");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchTrades();
-  }, [fetchTrades]);
 
   // ─── Computed stats ───────────────────────────────────────────────────────
   const totalTrades = trades.length;
