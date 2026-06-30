@@ -15,6 +15,17 @@ interface Profile {
   created_at: string;
 }
 
+interface NewUserForm {
+  email: string;
+  password: string;
+  full_name: string;
+  role: "admin" | "user";
+  status: "pending" | "active" | "suspended";
+  mt5_account_id: string;
+  mt5_password: string;
+  mt5_server: string;
+}
+
 // ─── Table Components ─────────────────────────────────────────────────────────
 function Th({ children }: { children: React.ReactNode }) {
   return (
@@ -89,6 +100,39 @@ function NeonSelect({
   );
 }
 
+// ─── Neon Input (for modal) ───────────────────────────────────────────────────
+function FormInput({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder = "",
+  required = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (val: string) => void;
+  type?: string;
+  placeholder?: string;
+  required?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-medium">
+        {label} {required && <span className="text-rose-400">*</span>}
+      </label>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-3 py-2 text-sm font-mono text-gray-300 
+        focus:border-cyan-500/50 focus:text-cyan-400 outline-none transition-all duration-200"
+      />
+    </div>
+  );
+}
+
 // ─── User Management Component ────────────────────────────────────────────────
 export default function UserManagement() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -97,6 +141,20 @@ export default function UserManagement() {
   const [saving, setSaving] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [edits, setEdits] = useState<Record<string, { role: string; status: string }>>({});
+
+  // Add User Modal state
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addingUser, setAddingUser] = useState(false);
+  const [newUser, setNewUser] = useState<NewUserForm>({
+    email: "",
+    password: "",
+    full_name: "",
+    role: "user",
+    status: "active",
+    mt5_account_id: "",
+    mt5_password: "",
+    mt5_server: "",
+  });
 
   const fetchProfiles = useCallback(async () => {
     try {
@@ -156,6 +214,53 @@ export default function UserManagement() {
     }
   };
 
+  const handleAddUser = async () => {
+    if (!newUser.email || !newUser.password || !newUser.full_name) {
+      setError("Email, password, and full name are required");
+      return;
+    }
+
+    setAddingUser(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newUser),
+      });
+
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || `HTTP ${res.status}`);
+      }
+
+      // Success
+      setSuccessMsg(`User "${newUser.full_name}" created successfully`);
+      setTimeout(() => setSuccessMsg(null), 3000);
+
+      // Reset form and close modal
+      setShowAddModal(false);
+      setNewUser({
+        email: "",
+        password: "",
+        full_name: "",
+        role: "user",
+        status: "active",
+        mt5_account_id: "",
+        mt5_password: "",
+        mt5_server: "",
+      });
+
+      // Refresh profiles list
+      fetchProfiles();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create user");
+    } finally {
+      setAddingUser(false);
+    }
+  };
+
   const hasChanges = (profileId: string) => {
     const profile = profiles.find((p) => p.id === profileId);
     const edit = edits[profileId];
@@ -175,13 +280,26 @@ export default function UserManagement() {
             Manage user roles and access &bull; Admin only
           </p>
         </div>
-        <button
-          onClick={fetchProfiles}
-          disabled={loading}
-          className="text-xs font-medium text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-xl px-4 py-2 transition-all duration-200 disabled:opacity-30 bg-gray-900/30"
-        >
-          {loading ? "Loading..." : "Refresh"}
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Add User Button */}
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 text-xs font-bold text-emerald-400 hover:text-emerald-300 border border-emerald-500/40 hover:border-emerald-500/60 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-xl px-4 py-2 transition-all duration-200 glow-green"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Add User
+          </button>
+          <button
+            onClick={fetchProfiles}
+            disabled={loading}
+            className="text-xs font-medium text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-xl px-4 py-2 transition-all duration-200 disabled:opacity-30 bg-gray-900/30"
+          >
+            {loading ? "Loading..." : "Refresh"}
+          </button>
+        </div>
       </div>
 
       {/* ─── Success Notification ─────────────────────────────────────────── */}
@@ -311,6 +429,139 @@ export default function UserManagement() {
           {profiles.length} user{profiles.length !== 1 ? "s" : ""} registered
         </span>
       </div>
+
+      {/* ─── Add User Modal ───────────────────────────────────────────────── */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-lg mx-4 rounded-2xl border border-gray-700/50 bg-[#0f1419] shadow-2xl">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800/50">
+              <h2 className="text-lg font-bold text-white glow-white">Add New User</h2>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="text-gray-500 hover:text-white transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="px-6 py-5 flex flex-col gap-5">
+              {/* Account Info */}
+              <div className="flex flex-col gap-3">
+                <span className="text-[10px] uppercase tracking-[0.2em] text-cyan-400/60 font-bold">Account Info</span>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <FormInput
+                      label="Full Name"
+                      value={newUser.full_name}
+                      onChange={(val) => setNewUser((prev) => ({ ...prev, full_name: val }))}
+                      placeholder="John Doe"
+                      required
+                    />
+                  </div>
+                  <FormInput
+                    label="Email"
+                    value={newUser.email}
+                    onChange={(val) => setNewUser((prev) => ({ ...prev, email: val }))}
+                    type="email"
+                    placeholder="user@example.com"
+                    required
+                  />
+                  <FormInput
+                    label="Password"
+                    value={newUser.password}
+                    onChange={(val) => setNewUser((prev) => ({ ...prev, password: val }))}
+                    type="password"
+                    placeholder="Min 6 characters"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Role & Status */}
+              <div className="flex flex-col gap-3">
+                <span className="text-[10px] uppercase tracking-[0.2em] text-cyan-400/60 font-bold">Access</span>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-medium">Role</label>
+                    <NeonSelect
+                      value={newUser.role}
+                      onChange={(val) => setNewUser((prev) => ({ ...prev, role: val as "admin" | "user" }))}
+                      options={[
+                        { value: "user", label: "User" },
+                        { value: "admin", label: "Admin" },
+                      ]}
+                      accent="cyan"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-medium">Status</label>
+                    <NeonSelect
+                      value={newUser.status}
+                      onChange={(val) => setNewUser((prev) => ({ ...prev, status: val as "pending" | "active" | "suspended" }))}
+                      options={[
+                        { value: "active", label: "Active" },
+                        { value: "pending", label: "Pending" },
+                        { value: "suspended", label: "Suspended" },
+                      ]}
+                      accent="green"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Exness MT5 */}
+              <div className="flex flex-col gap-3">
+                <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-400/60 font-bold">Exness MT5</span>
+                <div className="grid grid-cols-2 gap-3">
+                  <FormInput
+                    label="MT5 Account ID"
+                    value={newUser.mt5_account_id}
+                    onChange={(val) => setNewUser((prev) => ({ ...prev, mt5_account_id: val }))}
+                    placeholder="260904217"
+                  />
+                  <FormInput
+                    label="MT5 Server"
+                    value={newUser.mt5_server}
+                    onChange={(val) => setNewUser((prev) => ({ ...prev, mt5_server: val }))}
+                    placeholder="Exness-MT5Trial15"
+                  />
+                  <div className="col-span-2">
+                    <FormInput
+                      label="MT5 Password"
+                      value={newUser.mt5_password}
+                      onChange={(val) => setNewUser((prev) => ({ ...prev, mt5_password: val }))}
+                      type="password"
+                      placeholder="Trading password"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-800/50">
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="text-xs font-medium text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-xl px-5 py-2.5 transition-all duration-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddUser}
+                disabled={addingUser}
+                className="text-xs font-bold text-emerald-400 border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-xl px-5 py-2.5 transition-all duration-200 glow-green disabled:opacity-30"
+              >
+                {addingUser ? "Creating..." : "Create User"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
