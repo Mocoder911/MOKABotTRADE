@@ -183,8 +183,11 @@ export default function HomePage() {
 
   // All hooks must be defined BEFORE any early returns
   const fetchTrades = useCallback(async () => {
+    if (!user) return;
     try {
-      const res = await fetch("/api/trades/active");
+      const res = await fetch("/api/trades/active", {
+        headers: { "x-user-id": user.id },
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setTrades(json.trades);
@@ -194,7 +197,7 @@ export default function HomePage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   // Redirect to login if not authenticated (only once)
   useEffect(() => {
