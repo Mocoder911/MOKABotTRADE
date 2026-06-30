@@ -1,9 +1,18 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import Image from "next/image";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePathname } from "next/navigation";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface AccountMetrics {
+  balance: number;
+  equity: number;
+  pl: number;
+  margin: number;
+  positions: number;
+}
 
 interface MetricCardProps {
   label: string;
@@ -11,6 +20,20 @@ interface MetricCardProps {
   accent?: "white" | "green" | "red" | "cyan";
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function formatUSD(value: number): string {
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatPL(value: number): string {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}$${formatUSD(value)}`;
+}
+
+// ─── Metric Card ──────────────────────────────────────────────────────────────
 function MetricCard({ label, value, accent = "white" }: MetricCardProps) {
   const colorMap = {
     white: "text-white glow-white",
@@ -30,25 +53,51 @@ function MetricCard({ label, value, accent = "white" }: MetricCardProps) {
   );
 }
 
+// ─── Navbar ───────────────────────────────────────────────────────────────────
 export default function Navbar() {
-  const { profile, signOut } = useAuth();
+  const { profile, user, signOut } = useAuth();
   const pathname = usePathname();
+  const [metrics, setMetrics] = useState<AccountMetrics | null>(null);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+
+  const fetchMetrics = useCallback(async () => {
+    if (!user) return;
+    setMetricsLoading(true);
+    try {
+      const res = await fetch("/api/account/metrics", {
+        headers: { "x-user-id": user.id },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setMetrics({
+        balance: data.balance,
+        equity: data.equity,
+        pl: data.pl,
+        margin: data.margin,
+        positions: data.positions,
+      });
+    } catch (err) {
+      console.error("Failed to fetch metrics:", err);
+      setMetrics({ balance: 0, equity: 0, pl: 0, margin: 0, positions: 0 });
+    } finally {
+      setMetricsLoading(false);
+    }
+  }, [user]);
+
+  // Fetch metrics on mount and every 30 seconds
+  useEffect(() => {
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 30000);
+    return () => clearInterval(interval);
+  }, [fetchMetrics]);
 
   // Hide navbar on auth pages
   if (pathname === "/login" || pathname === "/signup") {
     return null;
   }
 
-  // Placeholder metrics — will be replaced with live Supabase data
-  const metrics = {
-    balance: "$10,000.00",
-    equity: "$10,245.80",
-    pl: "+$245.80",
-    margin: "$1,200.00",
-    position: "3",
-  };
-
-  const plIsPositive = true;
+  const plIsPositive = (metrics?.pl ?? 0) >= 0;
+  const loadingValue = "—";
 
   return (
     <nav className="sticky top-0 z-50 w-full bg-black/95 backdrop-blur-md border-b border-gray-800/60">
@@ -65,17 +114,32 @@ export default function Navbar() {
           />
         </div>
 
-        {/* Center: Trading Metrics */}
+        {/* Center: Trading Metrics (Live from Supabase) */}
         <div className="hidden md:flex items-center divide-x divide-gray-700/50 rounded-2xl bg-gray-900/40 border border-gray-800/50 px-3 py-1.5">
-          <MetricCard label="Balance" value={metrics.balance} accent="cyan" />
-          <MetricCard label="Equity" value={metrics.equity} accent="cyan" />
+          <MetricCard
+            label="Balance"
+            value={metrics ? `$${formatUSD(metrics.balance)}` : loadingValue}
+            accent="cyan"
+          />
+          <MetricCard
+            label="Equity"
+            value={metrics ? `$${formatUSD(metrics.equity)}` : loadingValue}
+            accent="cyan"
+          />
           <MetricCard
             label="P/L"
-            value={metrics.pl}
-            accent={plIsPositive ? "green" : "red"}
+            value={metrics ? formatPL(metrics.pl) : loadingValue}
+            accent={metricsLoading ? "white" : plIsPositive ? "green" : "red"}
           />
-          <MetricCard label="Margin" value={metrics.margin} />
-          <MetricCard label="Positions" value={metrics.position} accent="cyan" />
+          <MetricCard
+            label="Margin"
+            value={metrics ? `$${formatUSD(metrics.margin)}` : loadingValue}
+          />
+          <MetricCard
+            label="Positions"
+            value={metrics ? String(metrics.positions) : loadingValue}
+            accent="cyan"
+          />
         </div>
 
         {/* Right: User Info + Status */}
@@ -85,7 +149,7 @@ export default function Navbar() {
             <div className="hidden lg:flex flex-col items-end">
               <span className="text-sm font-medium text-white">{profile.full_name}</span>
               <span className="text-[10px] uppercase tracking-wider text-gray-500">
-                {profile.role} • {profile.status}
+                {profile.role} &bull; {profile.status}
               </span>
             </div>
           )}
@@ -100,6 +164,20 @@ export default function Navbar() {
               ● LIVE
             </span>
           </div>
+
+          {/* Refresh Metrics */}
+          <button
+            onClick={fetchMetrics}
+            disabled={metricsLoading}
+            className="text-xs text-gray-500 hover:text-cyan-400 border border-gray-800 hover:border-cyan-500/30 rounded-lg px-2 py-1.5 transition-all duration-200 disabled:opacity-30"
+            title="Refresh Metrics"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={metricsLoading ? "animate-spin" : ""}>
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+          </button>
 
           {/* Sign out */}
           {profile && (
@@ -120,15 +198,30 @@ export default function Navbar() {
 
       {/* Mobile metrics row */}
       <div className="md:hidden flex items-center justify-around border-t border-gray-800/50 py-2 px-2 bg-gray-950/80">
-        <MetricCard label="Balance" value={metrics.balance} accent="cyan" />
-        <MetricCard label="Equity" value={metrics.equity} accent="cyan" />
+        <MetricCard
+          label="Balance"
+          value={metrics ? `$${formatUSD(metrics.balance)}` : loadingValue}
+          accent="cyan"
+        />
+        <MetricCard
+          label="Equity"
+          value={metrics ? `$${formatUSD(metrics.equity)}` : loadingValue}
+          accent="cyan"
+        />
         <MetricCard
           label="P/L"
-          value={metrics.pl}
-          accent={plIsPositive ? "green" : "red"}
+          value={metrics ? formatPL(metrics.pl) : loadingValue}
+          accent={metricsLoading ? "white" : plIsPositive ? "green" : "red"}
         />
-        <MetricCard label="Margin" value={metrics.margin} />
-        <MetricCard label="Pos" value={metrics.position} accent="cyan" />
+        <MetricCard
+          label="Margin"
+          value={metrics ? `$${formatUSD(metrics.margin)}` : loadingValue}
+        />
+        <MetricCard
+          label="Pos"
+          value={metrics ? String(metrics.positions) : loadingValue}
+          accent="cyan"
+        />
       </div>
     </nav>
   );

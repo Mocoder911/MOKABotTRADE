@@ -312,7 +312,7 @@ export default function HomePage() {
               </h1>
               <p className="text-sm text-gray-500 mt-1.5">
                 Real-time positions from Exness MT5 &bull; Account{" "}
-                <span className="text-gray-400 font-mono">{profile?.mt5_account_id || "260904217"}</span>
+                <span className="text-gray-400 font-mono">{profile?.mt5_account_id || "—"}</span>
               </p>
             </div>
             <div className="flex items-center gap-3">
