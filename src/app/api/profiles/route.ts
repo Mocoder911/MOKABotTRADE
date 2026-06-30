@@ -101,8 +101,10 @@ export async function PUT(request: NextRequest) {
   const supabase = getSupabaseAdmin(); // Use admin client to bypass RLS
   const body = await request.json();
   const { id, role, status, bot_active } = body;
+  console.log("[API PUT] Received update request:", { id, role, status, bot_active });
 
   if (!id) {
+    console.error("[API PUT] Missing profile ID");
     return NextResponse.json({ error: "Profile ID is required" }, { status: 400 });
   }
 
@@ -110,6 +112,8 @@ export async function PUT(request: NextRequest) {
   if (role !== undefined) updateData.role = role;
   if (status !== undefined) updateData.status = status;
   if (bot_active !== undefined) updateData.bot_active = bot_active;
+
+  console.log("[API PUT] Updating profile with:", { id, updateData });
 
   const { data, error } = await supabase
     .from("profiles")
@@ -119,9 +123,10 @@ export async function PUT(request: NextRequest) {
     .single();
 
   if (error) {
-    console.error("Supabase update error:", error.message);
+    console.error("[API PUT] Supabase update error:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  console.log("[API PUT] Update successful:", data);
   return NextResponse.json({ data });
 }

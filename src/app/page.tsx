@@ -164,6 +164,7 @@ export default function HomePage() {
   const handleBotToggle = async () => {
     if (!profile || botToggling) return;
     setBotToggling(true);
+    console.log("[TOGGLE] Current bot_active:", profile.bot_active, "Toggling to:", !profile.bot_active);
     try {
       const res = await fetch("/api/profiles", {
         method: "PUT",
@@ -173,10 +174,13 @@ export default function HomePage() {
           bot_active: !profile.bot_active,
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      console.log("[TOGGLE] API response:", { status: res.status, data });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${data.error}`);
       await refreshProfile();
+      console.log("[TOGGLE] Profile refreshed successfully");
     } catch (err) {
-      console.error("Bot toggle failed:", err);
+      console.error("[TOGGLE] Bot toggle failed:", err);
     } finally {
       setBotToggling(false);
     }
