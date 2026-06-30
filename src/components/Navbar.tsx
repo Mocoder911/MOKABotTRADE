@@ -100,18 +100,23 @@ export default function Navbar() {
   const loadingValue = "—";
 
   return (
-    <nav className="sticky top-0 z-50 w-full bg-black/95 backdrop-blur-md border-b border-gray-800/60">
-      <div className="max-w-[1400px] mx-auto flex items-center justify-between h-20 px-6">
-        {/* Left: Logo */}
+    <nav className="sticky top-0 z-50 w-full bg-gray-800/95 backdrop-blur-md border-b border-gray-700/60 shadow-lg shadow-black/20">
+      <div className="max-w-[1400px] mx-auto flex items-center justify-between h-28 px-6">
+        {/* Left: Logo — Bigger with Neon Glow */}
         <div className="flex items-center shrink-0">
-          <Image
-            src="/mokabot-logo.png"
-            alt="MokaBot Logo"
-            width={54}
-            height={54}
-            className="object-contain h-auto"
-            priority
-          />
+          <div className="relative">
+            {/* Neon glow ring */}
+            <div className="absolute -inset-2 rounded-full bg-cyan-500/20 blur-xl animate-pulse"></div>
+            <div className="absolute -inset-1 rounded-full border-2 border-cyan-400/40"></div>
+            <Image
+              src="/mokabot-logo.png"
+              alt="MokaBot Logo"
+              width={80}
+              height={80}
+              className="relative object-contain h-auto drop-shadow-[0_0_12px_rgba(34,211,238,0.5)]"
+              priority
+            />
+          </div>
         </div>
 
         {/* Center: Trading Metrics (Live from Supabase) */}
@@ -210,7 +215,7 @@ export default function Navbar() {
       </div>
 
       {/* Mobile metrics row */}
-      <div className="md:hidden flex items-center justify-around border-t border-gray-800/50 py-2 px-2 bg-gray-950/80">
+      <div className="md:hidden flex items-center justify-around border-t border-gray-700/50 py-2 px-2 bg-gray-800/80">
         <MetricCard
           label="Balance"
           value={metrics ? `$${formatUSD(metrics.balance)}` : loadingValue}
