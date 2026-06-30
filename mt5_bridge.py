@@ -791,9 +791,21 @@ def sync_trades(mt5_account_id: str):
 
 def get_bot_status(mt5_account_id: str) -> bool:
     try:
-        result = supabase.table("profiles").select("bot_active").eq("mt5_account_id", mt5_account_id).maybe_single().execute()
-        return result.data.get("bot_active", False) if result.data else False
-    except:
+        result = supabase.table("profiles").select("bot_active, mt5_account_id").eq("mt5_account_id", mt5_account_id).maybe_single().execute()
+        if result.data:
+            print(f"[DEBUG] Found profile: mt5_account_id={result.data.get('mt5_account_id')}, bot_active={result.data.get('bot_active')}")
+            return result.data.get("bot_active", False)
+        else:
+            print(f"[DEBUG] No profile found with mt5_account_id='{mt5_account_id}'")
+            # Debug: list all profiles
+            all_profiles = supabase.table("profiles").select("mt5_account_id, bot_active").execute()
+            if all_profiles.data:
+                print(f"[DEBUG] Available profiles in DB: {all_profiles.data}")
+            else:
+                print(f"[DEBUG] No profiles in database")
+            return False
+    except Exception as e:
+        print(f"[DEBUG] get_bot_status error: {e}")
         return False
 
 

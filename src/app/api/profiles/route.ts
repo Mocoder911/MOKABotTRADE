@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
 
 // PUT update a profile
 export async function PUT(request: NextRequest) {
-  const supabase = getSupabase();
+  const supabase = getSupabaseAdmin(); // Use admin client to bypass RLS
   const body = await request.json();
   const { id, role, status, bot_active } = body;
 
