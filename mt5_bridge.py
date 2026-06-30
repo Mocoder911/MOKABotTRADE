@@ -790,22 +790,14 @@ def sync_trades(mt5_account_id: str):
         pass
 
 def get_bot_status(mt5_account_id: str) -> bool:
+    """Read bot_active from the bot_status table (separate from profiles to avoid trigger issues)."""
     try:
-        result = supabase.table("profiles").select("bot_active, mt5_account_id").eq("mt5_account_id", mt5_account_id).maybe_single().execute()
+        result = supabase.table("bot_status").select("bot_active").eq("mt5_account_id", mt5_account_id).maybe_single().execute()
         if result.data:
-            print(f"[DEBUG] Found profile: mt5_account_id={result.data.get('mt5_account_id')}, bot_active={result.data.get('bot_active')}")
             return result.data.get("bot_active", False)
-        else:
-            print(f"[DEBUG] No profile found with mt5_account_id='{mt5_account_id}'")
-            # Debug: list all profiles
-            all_profiles = supabase.table("profiles").select("mt5_account_id, bot_active").execute()
-            if all_profiles.data:
-                print(f"[DEBUG] Available profiles in DB: {all_profiles.data}")
-            else:
-                print(f"[DEBUG] No profiles in database")
-            return False
+        return False
     except Exception as e:
-        print(f"[DEBUG] get_bot_status error: {e}")
+        print(f"[WARN] get_bot_status error: {e}")
         return False
 
 
@@ -813,8 +805,6 @@ def get_bot_status(mt5_account_id: str) -> bool:
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
-    import json  # For debug printing
-    
     print("=" * 70)
     print("  MOKABotTRADE — Generic Strategy Framework")
     print("  ALL trading logic is defined in Supabase JSONB")
@@ -831,7 +821,7 @@ if __name__ == "__main__":
         mt5.shutdown()
         sys.exit(1)
     
-    print(f"[OK] Connected to MT5")
+    print(f"\n[OK] Connected to MT5")
     print(f"     Account: {account_info.login}")
     print(f"     Balance: ${account_info.balance:.2f}")
     print("=" * 70)
@@ -855,12 +845,13 @@ if __name__ == "__main__":
             bot_active = get_bot_status(MT5_ACCOUNT_ID)
             
             print(f"--- Cycle {cycle} @ {ts} ---")
+            print(f"[BALANCE] ${account_info.balance:.2f} | Equity: ${account_info.equity:.2f}")
             
             if bot_active:
                 print(f"[BOT] ▶ RUNNING")
                 engine.process_cycle(bot_active=True)
             else:
-                print(f"[BOT] ⏸  STANDBY")
+                print(f"[BOT] ⏸  STANDBY — Monitoring only")
             
             print(f"--- Next in 10s ---\n")
             time.sleep(10)

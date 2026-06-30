@@ -9,8 +9,28 @@ const supabaseAdmin = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } }
 );
 
-// GET all profiles
-export async function GET() {
+// GET all profiles or bot_status
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const field = searchParams.get("field");
+  const mt5AccountId = searchParams.get("mt5_account_id");
+
+  // Return bot_status from bot_status table
+  if (field === "bot_status" && mt5AccountId) {
+    const { data, error } = await supabaseAdmin
+      .from("bot_status")
+      .select("bot_active")
+      .eq("mt5_account_id", mt5AccountId)
+      .maybeSingle();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ bot_active: data?.bot_active ?? false });
+  }
+
+  // Default: return all profiles
   const supabase = getSupabase();
   const { data, error } = await supabase
     .from("profiles")
@@ -18,7 +38,6 @@ export async function GET() {
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("Supabase error:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -108,32 +127,56 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   const body = await request.json();
   const { id, role, status, bot_active } = body;
-  console.log("[API PUT] Received update request:", { id, role, status, bot_active });
 
   if (!id) {
-    console.error("[API PUT] Missing profile ID");
     return NextResponse.json({ error: "Profile ID is required" }, { status: 400 });
   }
 
-  const updateData: Record<string, unknown> = {};
-  if (role !== undefined) updateData.role = role;
-  if (status !== undefined) updateData.status = status;
-  if (bot_active !== undefined) updateData.bot_active = bot_active;
+  // Update profile fields (role, status) in profiles table
+  const profileUpdate: Record<string, unknown> = {};
+  if (role !== undefined) profileUpdate.role = role;
+  if (status !== undefined) profileUpdate.status = status;
 
-  console.log("[API PUT] Updating profile with:", { id, updateData });
+  if (Object.keys(profileUpdate).length > 0) {
+    const { data, error } = await supabaseAdmin
+      .from("profiles")
+      .update(profileUpdate)
+      .eq("id", id)
+      .select()
+      .single();
 
-  const { data, error } = await supabaseAdmin
-    .from("profiles")
-    .update(updateData)
-    .eq("id", id)
-    .select()
-    .single();
-
-  if (error) {
-    console.error("[API PUT] Supabase update error:", JSON.stringify(error));
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error("[API PUT] profiles update error:", error.message);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
   }
 
-  console.log("[API PUT] Update successful:", JSON.stringify(data));
-  return NextResponse.json({ data });
+  // Update bot_active in bot_status table (separate table to avoid profiles trigger issues)
+  if (bot_active !== undefined) {
+    // Look up mt5_account_id from profile
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("mt5_account_id")
+      .eq("id", id)
+      .single();
+
+    if (!profile?.mt5_account_id) {
+      return NextResponse.json({ error: "No mt5_account_id found for this profile" }, { status: 400 });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("bot_status")
+      .upsert({ mt5_account_id: profile.mt5_account_id, bot_active, updated_at: new Date().toISOString() }, { onConflict: "mt5_account_id" })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("[API PUT] bot_status update error:", error.message);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ data });
+  }
+
+  return NextResponse.json({ success: true });
 }

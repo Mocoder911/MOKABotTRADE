@@ -159,28 +159,50 @@ export default function HomePage() {
   const [redirected, setRedirected] = useState(false);
   const [botToggling, setBotToggling] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string>("");
+  const [botActive, setBotActive] = useState(false);
+
+  // Fetch bot_active from bot_status table
+  const fetchBotStatus = useCallback(async () => {
+    if (!profile?.mt5_account_id) return;
+    try {
+      const res = await fetch(`/api/profiles?mt5_account_id=${profile.mt5_account_id}&field=bot_status`);
+      if (res.ok) {
+        const json = await res.json();
+        setBotActive(json.bot_active ?? false);
+      }
+    } catch {
+      // silent
+    }
+  }, [profile?.mt5_account_id]);
+
+  // Fetch bot status on mount and periodically
+  useEffect(() => {
+    fetchBotStatus();
+    const interval = setInterval(fetchBotStatus, 10000); // Poll every 10s
+    return () => clearInterval(interval);
+  }, [fetchBotStatus]);
 
   // Bot toggle handler
   const handleBotToggle = async () => {
     if (!profile || botToggling) return;
     setBotToggling(true);
-    console.log("[TOGGLE] Current bot_active:", profile.bot_active, "Toggling to:", !profile.bot_active);
     try {
       const res = await fetch("/api/profiles", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: profile.id,
-          bot_active: !profile.bot_active,
+          bot_active: !botActive,
         }),
       });
-      const data = await res.json();
-      console.log("[TOGGLE] API response:", { status: res.status, data });
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${data.error}`);
-      await refreshProfile();
-      console.log("[TOGGLE] Profile refreshed successfully");
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      // Optimistic update
+      setBotActive(!botActive);
     } catch (err) {
-      console.error("[TOGGLE] Bot toggle failed:", err);
+      console.error("Bot toggle failed:", err);
     } finally {
       setBotToggling(false);
     }
@@ -329,14 +351,14 @@ export default function HomePage() {
                   onClick={handleBotToggle}
                   disabled={botToggling}
                   className={`relative w-12 h-6 rounded-full transition-all duration-300 ${
-                    profile?.bot_active
+                    botActive
                       ? "bg-emerald-500/30 border border-emerald-500/50 glow-green"
                       : "bg-rose-500/20 border border-rose-500/30"
                   }`}
                 >
                   <div
                     className={`absolute top-0.5 w-5 h-5 rounded-full transition-all duration-300 ${
-                      profile?.bot_active
+                      botActive
                         ? "left-6 bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]"
                         : "left-0.5 bg-rose-400"
                     }`}
@@ -344,7 +366,7 @@ export default function HomePage() {
                 </button>
                 <span
                   className={`text-xs font-bold tracking-wide ${
-                    profile?.bot_active
+                    botActive
                       ? "text-emerald-400 glow-green"
                       : "text-rose-400/70"
                   }`}
