@@ -340,37 +340,37 @@ export default function StrategyBuilder() {
 
       {/* Builder Form */}
       {showBuilder && (
-        <div className="rounded-2xl border border-gray-700/50 bg-[#1a1f26] p-6">
-          <h3 className="text-lg font-bold text-white mb-4">New Strategy</h3>
+        <div className="rounded-2xl border border-gray-700/50 bg-[#1a1f26] p-8">
+          <h3 className="text-lg font-bold text-white mb-6">New Strategy</h3>
 
           {/* Basic Info */}
-          <div className="grid grid-cols-3 gap-4 mb-6">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] uppercase tracking-wider text-gray-500">Name *</label>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div className="flex flex-col gap-2">
+              <label className="text-xs uppercase tracking-wider text-gray-400 font-medium">Name *</label>
               <input
                 type="text"
                 value={builderName}
                 onChange={(e) => setBuilderName(e.target.value)}
                 placeholder="My Strategy"
-                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-gray-300 focus:border-cyan-500/50 outline-none"
+                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-4 py-3 text-sm text-gray-300 focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 outline-none transition-all"
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] uppercase tracking-wider text-gray-500">Symbol *</label>
+            <div className="flex flex-col gap-2">
+              <label className="text-xs uppercase tracking-wider text-gray-400 font-medium">Symbol *</label>
               <input
                 type="text"
                 value={builderSymbol}
                 onChange={(e) => setBuilderSymbol(e.target.value)}
                 placeholder="XAUUSD"
-                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-gray-300 focus:border-cyan-500/50 outline-none"
+                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-4 py-3 text-sm text-gray-300 focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 outline-none transition-all"
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] uppercase tracking-wider text-gray-500">Timeframe</label>
+            <div className="flex flex-col gap-2">
+              <label className="text-xs uppercase tracking-wider text-gray-400 font-medium">Timeframe</label>
               <select
                 value={builderTimeframe}
                 onChange={(e) => setBuilderTimeframe(e.target.value)}
-                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-gray-300 focus:border-cyan-500/50 outline-none"
+                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-4 py-3 text-sm text-gray-300 focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 outline-none transition-all"
               >
                 {TIMEFRAMES.map((tf) => (
                   <option key={tf} value={tf}>{tf}</option>
@@ -380,14 +380,14 @@ export default function StrategyBuilder() {
           </div>
 
           {/* Description */}
-          <div className="mb-6">
-            <label className="text-[10px] uppercase tracking-wider text-gray-500 block mb-1.5">Description</label>
+          <div className="mb-8">
+            <label className="text-xs uppercase tracking-wider text-gray-400 font-medium block mb-2">Description</label>
             <input
               type="text"
               value={builderDesc}
               onChange={(e) => setBuilderDesc(e.target.value)}
               placeholder="Optional description"
-              className="w-full bg-gray-900/60 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-gray-300 focus:border-cyan-500/50 outline-none"
+              className="w-full bg-gray-900/60 border border-gray-700/50 rounded-lg px-4 py-3 text-sm text-gray-300 focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 outline-none transition-all"
             />
           </div>
 
@@ -525,34 +525,34 @@ export default function StrategyBuilder() {
           </div>
 
           {/* Risk & Filters */}
-          <div className="grid grid-cols-3 gap-4 mb-6">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] uppercase tracking-wider text-emerald-400/60 font-bold">Risk % per Trade</label>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div className="flex flex-col gap-2">
+              <label className="text-xs uppercase tracking-wider text-emerald-400/70 font-medium">Risk % per Trade</label>
               <input
                 type="number"
                 step="0.1"
                 value={riskPerTrade}
                 onChange={(e) => setRiskPerTrade(parseFloat(e.target.value))}
-                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-gray-300"
+                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-4 py-3 text-sm text-gray-300 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] uppercase tracking-wider text-emerald-400/60 font-bold">Max Volume</label>
+            <div className="flex flex-col gap-2">
+              <label className="text-xs uppercase tracking-wider text-emerald-400/70 font-medium">Max Volume</label>
               <input
                 type="number"
                 step="0.01"
                 value={maxVolume}
                 onChange={(e) => setMaxVolume(parseFloat(e.target.value))}
-                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-gray-300"
+                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-4 py-3 text-sm text-gray-300 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] uppercase tracking-wider text-emerald-400/60 font-bold">Max Spread (pts)</label>
+            <div className="flex flex-col gap-2">
+              <label className="text-xs uppercase tracking-wider text-emerald-400/70 font-medium">Max Spread (pts)</label>
               <input
                 type="number"
                 value={maxSpread}
                 onChange={(e) => setMaxSpread(parseInt(e.target.value))}
-                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-gray-300"
+                className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-4 py-3 text-sm text-gray-300 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
               />
             </div>
           </div>
