@@ -158,6 +158,7 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [redirected, setRedirected] = useState(false);
   const [botToggling, setBotToggling] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string>("");
 
   // Bot toggle handler
   const handleBotToggle = async () => {
@@ -192,6 +193,7 @@ export default function HomePage() {
       const json = await res.json();
       setTrades(json.trades);
       setError(null);
+      setLastSyncTime(new Date().toLocaleTimeString());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch trades");
     } finally {
@@ -479,7 +481,7 @@ export default function HomePage() {
               </span>
             </span>
             <span className="font-mono">
-              Last sync: {loading ? "..." : new Date().toLocaleTimeString()}
+              Last sync: {lastSyncTime || "..."}
             </span>
           </div>
         </div>
