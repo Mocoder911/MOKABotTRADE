@@ -100,7 +100,7 @@ export default function Navbar() {
   const loadingValue = "—";
 
   return (
-    <nav className="sticky top-0 z-50 w-full bg-gray-800/95 backdrop-blur-md border-b border-gray-700/60 shadow-lg shadow-black/20">
+    <nav className="sticky top-0 z-50 w-full bg-[#1a1f26]/95 backdrop-blur-md border-b border-gray-700/60 shadow-lg shadow-black/20">
       <div className="max-w-[1400px] mx-auto flex items-center justify-between h-28 px-6">
         {/* Left: Logo */}
         <div className="flex items-center shrink-0">
@@ -210,7 +210,7 @@ export default function Navbar() {
       </div>
 
       {/* Mobile metrics row */}
-      <div className="md:hidden flex items-center justify-around border-t border-gray-700/50 py-2 px-2 bg-gray-800/80">
+      <div className="md:hidden flex items-center justify-around border-t border-gray-700/50 py-2 px-2 bg-[#1a1f26]/80">
         <MetricCard
           label="Balance"
           value={metrics ? `$${formatUSD(metrics.balance)}` : loadingValue}
