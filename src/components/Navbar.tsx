@@ -102,21 +102,16 @@ export default function Navbar() {
   return (
     <nav className="sticky top-0 z-50 w-full bg-gray-800/95 backdrop-blur-md border-b border-gray-700/60 shadow-lg shadow-black/20">
       <div className="max-w-[1400px] mx-auto flex items-center justify-between h-28 px-6">
-        {/* Left: Logo — Bigger with Neon Glow */}
+        {/* Left: Logo */}
         <div className="flex items-center shrink-0">
-          <div className="relative">
-            {/* Neon glow ring */}
-            <div className="absolute -inset-2 rounded-full bg-cyan-500/20 blur-xl animate-pulse"></div>
-            <div className="absolute -inset-1 rounded-full border-2 border-cyan-400/40"></div>
-            <Image
-              src="/mokabot-logo.png"
-              alt="MokaBot Logo"
-              width={80}
-              height={80}
-              className="relative object-contain h-auto drop-shadow-[0_0_12px_rgba(34,211,238,0.5)]"
-              priority
-            />
-          </div>
+          <Image
+            src="/mokabot-logo.png"
+            alt="MokaBot Logo"
+            width={80}
+            height={80}
+            className="object-contain h-auto drop-shadow-[0_0_12px_rgba(34,211,238,0.5)]"
+            priority
+          />
         </div>
 
         {/* Center: Trading Metrics (Live from Supabase) */}
