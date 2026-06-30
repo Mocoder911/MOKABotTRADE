@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabase } from "@/lib/supabase";
+import { getSupabase, getSupabaseAdmin } from "@/lib/supabase";
 
 // GET all profiles
 export async function GET() {
@@ -17,10 +17,10 @@ export async function GET() {
   return NextResponse.json({ data: data ?? [] });
 }
 
-// POST — Admin creates a new user
+// POST — Admin creates a new user (requires Service Role Key)
 export async function POST(request: NextRequest) {
   try {
-    const supabase = getSupabase();
+    const supabase = getSupabaseAdmin(); // Use admin client for auth.admin operations
     const body = await request.json();
 
     const {
