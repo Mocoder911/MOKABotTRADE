@@ -156,13 +156,15 @@ export default function HomePage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [redirected, setRedirected] = useState(false);
 
-  // Redirect to login if not authenticated
+  // Redirect to login if not authenticated (only once)
   useEffect(() => {
-    if (!authLoading && !user) {
+    if (!authLoading && !user && !redirected) {
+      setRedirected(true);
       window.location.href = "/login";
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, redirected]);
 
   const isAdmin = profile?.role === "admin";
   const isActive = profile?.status === "active";
