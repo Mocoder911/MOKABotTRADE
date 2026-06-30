@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS strategies (
   is_active BOOLEAN DEFAULT false,
   priority INTEGER DEFAULT 0,
   
+  -- Dry Run Mode: When true, bot simulates trades without executing
+  -- Useful for backtesting and validating strategy logic before going live
+  dry_run BOOLEAN DEFAULT true,
+  
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -56,13 +60,14 @@ CREATE TABLE IF NOT EXISTS execution_log (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   strategy_id UUID REFERENCES strategies(id) ON DELETE CASCADE,
   ticket TEXT,
-  action TEXT NOT NULL,
+  action TEXT NOT NULL,  -- 'OPEN', 'CLOSE', 'MODIFY', 'SIMULATED'
   symbol TEXT,
   volume DECIMAL(10,2),
   price DECIMAL(15,5),
   sl DECIMAL(15,5),
   tp DECIMAL(15,5),
   result JSONB DEFAULT '{}'::jsonb,
+  is_dry_run BOOLEAN DEFAULT false,  -- True if this was a simulated trade
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

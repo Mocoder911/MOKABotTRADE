@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   const supabase = getSupabase();
   const body = await request.json();
 
-  const { name, description, symbol, entry_rules, exit_rules, sizing_rules, filters, is_active, priority } = body;
+  const { name, description, symbol, entry_rules, exit_rules, sizing_rules, filters, is_active, priority, dry_run } = body;
 
   if (!name || !symbol) {
     return NextResponse.json({ error: "Name and symbol are required" }, { status: 400 });
@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
       filters: filters || {},
       is_active: is_active ?? false,
       priority: priority ?? 0,
+      dry_run: dry_run ?? true,  // Default to dry_run=true for safety
     })
     .select()
     .single();

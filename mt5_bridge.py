@@ -602,24 +602,44 @@ class StrategyEngine:
         
         return True
     
-    def _execute_entry(self, strategy: Dict, symbol: str, signal: str, 
+    def _execute_entry(self, strategy: Dict, symbol: str, signal: str,
                        sizing_rules: Dict, balance: float):
-        """Execute entry order"""
+        """Execute entry order (or simulate if dry_run=True)"""
         strategy_id = strategy.get("id")
         strategy_name = strategy.get("name")
-        
+        dry_run = strategy.get("dry_run", True)  # Default to dry_run=True for safety
+            
         volume = self.risk_manager.calculate_volume(symbol, balance, sizing_rules)
         if volume <= 0:
             self._log_signal(strategy_id, symbol, f"ENTRY_{signal}", "SKIPPED", "Invalid volume")
             return
-        
+            
         tick = mt5.symbol_info_tick(symbol)
         if not tick:
             return
-        
+            
         price = tick.ask if signal == "BUY" else tick.bid
         sl, tp = self.risk_manager.get_sl_tp(symbol, signal, price)
-        
+            
+        # ─── DRY RUN MODE: Simulate without executing ──────────────────────
+        if dry_run:
+            print(f"[DRY RUN] {signal} {symbol} @ {price} | Vol: {volume} | SL: {sl} | TP: {tp}")
+            self._log_execution(
+                strategy_id, 
+                f"SIM_{int(time.time())}",  # Fake ticket
+                "SIMULATED", 
+                symbol, 
+                volume, 
+                price, 
+                sl, 
+                tp,
+                {"mode": "dry_run", "signal": signal},
+                is_dry_run=True
+            )
+            self._log_signal(strategy_id, symbol, f"ENTRY_{signal}", "SIMULATED", "Dry run - no real order")
+            return
+            
+        # ─── LIVE MODE: Execute real order ─────────────────────────────────
         order_type = mt5.ORDER_TYPE_BUY if signal == "BUY" else mt5.ORDER_TYPE_SELL
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -635,13 +655,13 @@ class StrategyEngine:
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": mt5.ORDER_FILLING_IOC,
         }
-        
+            
         result = mt5.order_send(request)
-        
+            
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
             print(f"[EXECUTE] {signal} {symbol} @ {price} | Vol: {volume} | SL: {sl} | TP: {tp}")
             self._log_execution(strategy_id, result.order, "OPEN", symbol, volume, price, sl, tp,
-                              {"retcode": result.retcode})
+                              {"retcode": result.retcode}, is_dry_run=False)
             self._log_signal(strategy_id, symbol, f"ENTRY_{signal}", "EXECUTED", f"Ticket: {result.order}")
         else:
             error = result.comment if result else "No result"
@@ -670,7 +690,8 @@ class StrategyEngine:
             print(f"[LOG] Signal error: {e}")
     
     def _log_execution(self, strategy_id: str, ticket: str, action: str, symbol: str,
-                      volume: float, price: float, sl: float, tp: float, result: Dict):
+                      volume: float, price: float, sl: float, tp: float, result: Dict,
+                      is_dry_run: bool = False):
         """Log to execution_log"""
         try:
             supabase.table("execution_log").insert({
@@ -683,6 +704,7 @@ class StrategyEngine:
                 "sl": sl,
                 "tp": tp,
                 "result": result,
+                "is_dry_run": is_dry_run,
             }).execute()
         except Exception as e:
             print(f"[LOG] Execution error: {e}")

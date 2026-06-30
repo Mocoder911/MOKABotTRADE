@@ -14,6 +14,7 @@ interface Strategy {
   filters: Record<string, unknown>;
   is_active: boolean;
   priority: number;
+  dry_run: boolean;  // Dry run mode flag
   created_at: string;
 }
 
@@ -126,6 +127,7 @@ export default function StrategyBuilder() {
   const [riskPerTrade, setRiskPerTrade] = useState(1.0);
   const [maxVolume, setMaxVolume] = useState(0.5);
   const [maxSpread, setMaxSpread] = useState(50);
+  const [dryRun, setDryRun] = useState(true);  // Default to dry run for safety
 
   const fetchStrategies = useCallback(async () => {
     try {
@@ -252,6 +254,7 @@ export default function StrategyBuilder() {
           },
           is_active: false,
           priority: 0,
+          dry_run: dryRun,  // Include dry_run flag
         }),
       });
 
@@ -491,6 +494,36 @@ export default function StrategyBuilder() {
             </button>
           </div>
 
+          {/* Dry Run Toggle */}
+          <div className="mb-6 p-4 rounded-xl bg-gray-900/40 border border-amber-500/30">
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-amber-400/80 font-bold block">
+                  🧪 Dry Run Mode (Simulation)
+                </label>
+                <p className="text-xs text-gray-500 mt-1">
+                  When enabled, the bot simulates trades without executing real orders. Use this to validate your strategy before going live.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDryRun(!dryRun)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  dryRun ? "bg-amber-500" : "bg-gray-700"
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    dryRun ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
+            <div className={`mt-2 text-xs font-mono ${dryRun ? "text-amber-400" : "text-gray-600"}`}>
+              {dryRun ? "✓ SIMULATION — No real trades will be executed" : "⚡ LIVE — Real trades will be executed"}
+            </div>
+          </div>
+
           {/* Risk & Filters */}
           <div className="grid grid-cols-3 gap-4 mb-6">
             <div className="flex flex-col gap-1.5">
@@ -559,6 +592,7 @@ export default function StrategyBuilder() {
               <th className="px-5 py-4 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Name</th>
               <th className="px-5 py-4 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Symbol</th>
               <th className="px-5 py-4 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Entry Rules</th>
+              <th className="px-5 py-4 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Mode</th>
               <th className="px-5 py-4 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Status</th>
               <th className="px-5 py-4 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Action</th>
             </tr>
@@ -566,13 +600,13 @@ export default function StrategyBuilder() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={5} className="text-center py-12 text-gray-600">
+                <td colSpan={6} className="text-center py-12 text-gray-600">
                   Loading strategies...
                 </td>
               </tr>
             ) : strategies.length === 0 ? (
               <tr>
-                <td colSpan={5} className="text-center py-12 text-gray-600">
+                <td colSpan={6} className="text-center py-12 text-gray-600">
                   <span className="text-4xl opacity-40 block mb-2">📊</span>
                   No strategies yet — click "New Strategy" to create one
                 </td>
@@ -591,6 +625,15 @@ export default function StrategyBuilder() {
                     <pre className="text-xs text-gray-500 font-mono max-w-xs truncate">
                       {JSON.stringify(strategy.entry_rules)}
                     </pre>
+                  </td>
+                  <td className="px-5 py-4">
+                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                      strategy.dry_run
+                        ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                        : "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                    }`}>
+                      {strategy.dry_run ? "🧪 DRY RUN" : "⚡ LIVE"}
+                    </span>
                   </td>
                   <td className="px-5 py-4">
                     <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
