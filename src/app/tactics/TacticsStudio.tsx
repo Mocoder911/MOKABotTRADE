@@ -173,7 +173,7 @@ export default function TacticsStudio() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto flex flex-col gap-8 px-4">
+    <div className="w-full mx-auto flex flex-col gap-8 px-4">
       {/* ─── Header ───────────────────────────────────────────────────────── */}
       <div className="flex items-end justify-between pt-2">
         <div>
