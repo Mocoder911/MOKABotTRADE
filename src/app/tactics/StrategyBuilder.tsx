@@ -392,17 +392,17 @@ export default function StrategyBuilder() {
           </div>
 
           {/* Conditions */}
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-3">
-              <label className="text-[10px] uppercase tracking-wider text-cyan-400/60 font-bold">
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <label className="text-sm font-medium text-gray-400">
                 Entry Conditions
               </label>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-gray-500">Logic:</span>
+                <span className="text-sm text-gray-500">Logic:</span>
                 <select
                   value={builderLogic}
                   onChange={(e) => setBuilderLogic(e.target.value as "AND" | "OR")}
-                  className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-2 py-1 text-xs text-gray-300"
+                  className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:ring-2 focus:ring-green-500 outline-none"
                 >
                   <option value="AND">AND (all must match)</option>
                   <option value="OR">OR (any can match)</option>
@@ -411,14 +411,14 @@ export default function StrategyBuilder() {
             </div>
 
             {conditions.map((cond, index) => (
-              <div key={index} className="flex items-start gap-3 mb-3 p-3 rounded-xl bg-gray-900/40 border border-gray-800/30">
+              <div key={index} className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 p-5 rounded-xl bg-gray-800/50 border border-gray-700/50 items-end">
                 {/* Indicator */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[9px] uppercase text-gray-600">Indicator</label>
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium text-gray-400">Indicator</label>
                   <select
                     value={cond.indicator}
                     onChange={(e) => updateCondition(index, "indicator", e.target.value)}
-                    className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-2 py-1.5 text-xs text-gray-300 min-w-[120px]"
+                    className="bg-gray-800 border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-green-500 text-gray-300 outline-none transition-all"
                   >
                     {Object.entries(INDICATORS).map(([key, val]) => (
                       <option key={key} value={key}>{val.label}</option>
@@ -427,17 +427,17 @@ export default function StrategyBuilder() {
                 </div>
 
                 {/* Parameters */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[9px] uppercase text-gray-600">Parameters</label>
-                  <div className="flex gap-2">
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium text-gray-400">Parameters</label>
+                  <div className="flex gap-3">
                     {INDICATORS[cond.indicator]?.params.map((param) => (
-                      <div key={param.name} className="flex flex-col gap-0.5">
-                        <span className="text-[8px] text-gray-600">{param.label}</span>
+                      <div key={param.name} className="flex flex-col gap-1 flex-1">
+                        <span className="text-xs text-gray-500">{param.label}</span>
                         <input
                           type="number"
                           value={cond.params[param.name] ?? param.default}
                           onChange={(e) => updateParam(index, param.name, parseFloat(e.target.value))}
-                          className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-2 py-1 text-xs text-gray-300 w-16"
+                          className="bg-gray-800 border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-green-500 text-gray-300 outline-none transition-all w-full"
                         />
                       </div>
                     ))}
@@ -445,12 +445,12 @@ export default function StrategyBuilder() {
                 </div>
 
                 {/* Operator */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[9px] uppercase text-gray-600">Condition</label>
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium text-gray-400">Condition</label>
                   <select
                     value={cond.operator}
                     onChange={(e) => updateCondition(index, "operator", e.target.value)}
-                    className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-2 py-1.5 text-xs text-gray-300 min-w-[140px]"
+                    className="bg-gray-800 border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-green-500 text-gray-300 outline-none transition-all"
                   >
                     {OPERATORS.map((op) => (
                       <option key={op.value} value={op.value}>{op.label}</option>
@@ -459,36 +459,35 @@ export default function StrategyBuilder() {
                 </div>
 
                 {/* Value */}
-                {cond.operator !== "crosses_above" && cond.operator !== "crosses_below" && (
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] uppercase text-gray-600">Value</label>
+                {cond.operator !== "crosses_above" && cond.operator !== "crosses_below" ? (
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium text-gray-400">Value</label>
                     <input
                       type="number"
                       value={cond.value ?? 0}
                       onChange={(e) => updateCondition(index, "value", parseFloat(e.target.value))}
-                      className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-2 py-1.5 text-xs text-gray-300 w-20"
+                      className="bg-gray-800 border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-green-500 text-gray-300 outline-none transition-all"
                     />
                   </div>
-                )}
+                ) : <div />}
 
                 {/* Remove */}
-                {conditions.length > 1 && (
-                  <button
-                    onClick={() => removeCondition(index)}
-                    className="mt-4 text-gray-600 hover:text-rose-400 transition-colors"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <line x1="18" y1="6" x2="6" y2="18"></line>
-                      <line x1="6" y1="6" x2="18" y2="18"></line>
-                    </svg>
-                  </button>
-                )}
+                <div className="flex items-end">
+                  {conditions.length > 1 ? (
+                    <button
+                      onClick={() => removeCondition(index)}
+                      className="w-full text-rose-400 border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg p-3 transition-all text-sm font-medium"
+                    >
+                      Remove
+                    </button>
+                  ) : <div />}
+                </div>
               </div>
             ))}
 
             <button
               onClick={addCondition}
-              className="text-xs text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 hover:border-cyan-500/50 rounded-lg px-3 py-1.5 transition-all"
+              className="text-sm text-green-400 hover:text-green-300 border border-green-500/30 hover:border-green-500/50 rounded-lg px-4 py-2.5 transition-all font-medium"
             >
               + Add Condition
             </button>
