@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabase, getSupabaseAdmin } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
+
+// Direct admin client with hardcoded key (same as Python bridge)
+const supabaseAdmin = createClient(
+  "https://gonfmiqwothggojdmglf.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdvbmZtaXF3b3RoZ2dvamRtZ2xmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4Mjc2Nzk5NiwiZXhwIjoyMDk4MzQzOTk2fQ.MJ1T20lriV99v_uczf3n-D52ybqODBKGiXSjjW8tudI",
+  { auth: { autoRefreshToken: false, persistSession: false } }
+);
 
 // GET all profiles
 export async function GET() {
@@ -98,7 +106,6 @@ export async function POST(request: NextRequest) {
 
 // PUT update a profile
 export async function PUT(request: NextRequest) {
-  const supabase = getSupabaseAdmin(); // Use admin client to bypass RLS
   const body = await request.json();
   const { id, role, status, bot_active } = body;
   console.log("[API PUT] Received update request:", { id, role, status, bot_active });
@@ -115,7 +122,7 @@ export async function PUT(request: NextRequest) {
 
   console.log("[API PUT] Updating profile with:", { id, updateData });
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from("profiles")
     .update(updateData)
     .eq("id", id)
@@ -123,10 +130,10 @@ export async function PUT(request: NextRequest) {
     .single();
 
   if (error) {
-    console.error("[API PUT] Supabase update error:", error.message);
+    console.error("[API PUT] Supabase update error:", JSON.stringify(error));
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  console.log("[API PUT] Update successful:", data);
+  console.log("[API PUT] Update successful:", JSON.stringify(data));
   return NextResponse.json({ data });
 }
