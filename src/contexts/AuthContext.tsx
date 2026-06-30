@@ -15,6 +15,7 @@ export interface Profile {
   mt5_password?: string;
   mt5_server?: string;
   bot_active?: boolean;
+  verification_status?: "PENDING" | "VALIDATED" | "INVALID_CREDENTIALS";
   created_at: string;
 }
 
