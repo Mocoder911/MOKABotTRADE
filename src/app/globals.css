@@ -13,11 +13,63 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
 
-/* Pulsing glow animation for LIVE indicator */
+/* ─── Neon Glow Utilities ─────────────────────────────────────────────────── */
+
+/* Green / Emerald glow */
+.glow-green {
+  text-shadow:
+    0 0 6px rgba(16, 185, 129, 0.8),
+    0 0 14px rgba(16, 185, 129, 0.5),
+    0 0 30px rgba(16, 185, 129, 0.25);
+}
+
+/* Cyan glow */
+.glow-cyan {
+  text-shadow:
+    0 0 6px rgba(6, 182, 212, 0.8),
+    0 0 14px rgba(6, 182, 212, 0.5),
+    0 0 30px rgba(6, 182, 212, 0.25);
+}
+
+/* Rose / Red glow */
+.glow-rose {
+  text-shadow:
+    0 0 6px rgba(244, 63, 94, 0.8),
+    0 0 14px rgba(244, 63, 94, 0.5),
+    0 0 30px rgba(244, 63, 94, 0.25);
+}
+
+/* White soft glow for labels */
+.glow-white {
+  text-shadow:
+    0 0 8px rgba(255, 255, 255, 0.3),
+    0 0 20px rgba(255, 255, 255, 0.1);
+}
+
+/* Box glow for cards */
+.glow-box-green {
+  box-shadow:
+    0 0 12px rgba(16, 185, 129, 0.15),
+    inset 0 0 12px rgba(16, 185, 129, 0.05);
+}
+
+.glow-box-cyan {
+  box-shadow:
+    0 0 12px rgba(6, 182, 212, 0.15),
+    inset 0 0 12px rgba(6, 182, 212, 0.05);
+}
+
+.glow-box-rose {
+  box-shadow:
+    0 0 12px rgba(244, 63, 94, 0.15),
+    inset 0 0 12px rgba(244, 63, 94, 0.05);
+}
+
+/* ─── Pulse Glow Animation (LIVE indicator) ───────────────────────────────── */
 @keyframes pulse-glow {
   0%, 100% {
     opacity: 1;
-    text-shadow: 0 0 8px #22c55e, 0 0 16px #22c55e;
+    text-shadow: 0 0 8px #22c55e, 0 0 16px #22c55e, 0 0 32px #22c55e;
   }
   50% {
     opacity: 0.6;
