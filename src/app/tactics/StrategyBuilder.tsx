@@ -24,10 +24,16 @@ interface Condition {
   operator: string;
   value?: number;
   compare_to?: string;
+  compare_indicator?: string;  // For comparing against another indicator
+  compare_params?: Record<string, number>;  // Params for the compare indicator
 }
 
 // ─── Indicator Definitions ────────────────────────────────────────────────────
 const INDICATORS: Record<string, { label: string; params: { name: string; default: number; label: string }[] }> = {
+  price: {
+    label: "Price (Close)",
+    params: [],  // No parameters needed - uses current close price
+  },
   rsi: {
     label: "RSI",
     params: [{ name: "length", default: 14, label: "Period" }],
@@ -458,16 +464,53 @@ export default function StrategyBuilder() {
                   </select>
                 </div>
 
-                {/* Value */}
+                {/* Value / Compare Indicator */}
                 {cond.operator !== "crosses_above" && cond.operator !== "crosses_below" ? (
                   <div className="flex flex-col gap-2">
-                    <label className="text-sm font-medium text-gray-400">Value</label>
-                    <input
-                      type="number"
-                      value={cond.value ?? 0}
-                      onChange={(e) => updateCondition(index, "value", parseFloat(e.target.value))}
-                      className="bg-gray-800 border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-green-500 text-gray-300 outline-none transition-all"
-                    />
+                    <label className="text-sm font-medium text-gray-400">
+                      {cond.compare_indicator ? "Compare With" : "Value"}
+                    </label>
+                    {cond.indicator === "price" ? (
+                      // For Price indicator, show compare indicator dropdown
+                      <div className="flex gap-2">
+                        <select
+                          value={cond.compare_indicator ?? "ema"}
+                          onChange={(e) => {
+                            const newCond = { ...cond, compare_indicator: e.target.value };
+                            setConditions(conditions.map((c, i) => i === index ? newCond : c));
+                          }}
+                          className="bg-gray-800 border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-green-500 text-gray-300 outline-none transition-all flex-1"
+                        >
+                          {Object.entries(INDICATORS)
+                            .filter(([key]) => key !== "price")
+                            .map(([key, val]) => (
+                              <option key={key} value={key}>{val.label}</option>
+                            ))}
+                        </select>
+                        {/* Compare indicator params */}
+                        {cond.compare_indicator && INDICATORS[cond.compare_indicator]?.params.map((param) => (
+                          <input
+                            key={param.name}
+                            type="number"
+                            value={cond.compare_params?.[param.name] ?? param.default}
+                            onChange={(e) => {
+                              const newParams = { ...(cond.compare_params || {}), [param.name]: parseFloat(e.target.value) };
+                              setConditions(conditions.map((c, i) => i === index ? { ...c, compare_params: newParams } : c));
+                            }}
+                            className="bg-gray-800 border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-green-500 text-gray-300 outline-none transition-all w-20"
+                            placeholder={param.label}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      // For other indicators, show fixed value input
+                      <input
+                        type="number"
+                        value={cond.value ?? 0}
+                        onChange={(e) => updateCondition(index, "value", parseFloat(e.target.value))}
+                        className="bg-gray-800 border border-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-green-500 text-gray-300 outline-none transition-all"
+                      />
+                    )}
                   </div>
                 ) : <div />}
 

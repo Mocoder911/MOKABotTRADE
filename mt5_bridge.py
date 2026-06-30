@@ -118,7 +118,7 @@ class IndicatorCalculator:
         """
         Calculate ANY indicator dynamically.
         
-        indicator_name: lowercase name (rsi, macd, bbands, sma, ema, etc.)
+        indicator_name: lowercase name (rsi, macd, bbands, sma, ema, price, etc.)
         params: parameters dict from JSONB
         
         Returns the indicator value(s) or None.
@@ -126,6 +126,10 @@ class IndicatorCalculator:
         df = self.get_dataframe(symbol, timeframe)
         if df is None or len(df) < 50:
             return None
+        
+        # Special case: "price" returns current close price
+        if indicator_name.lower() == "price":
+            return {"price": df['close'].iloc[-1]}
         
         # Convert indicator name to pandas-ta function name
         indicator_lower = indicator_name.lower().replace(" ", "").replace("_", "")
@@ -296,14 +300,21 @@ class GenericSignalEvaluator:
         """
         Evaluate a single condition from JSONB.
         Returns 'BUY', 'SELL', or None.
+        
+        Supports:
+        - Simple: {"indicator": "rsi", "params": {"length": 14}, "operator": "lt", "value": 30}
+        - Cross: {"indicator": "macd", "params": {...}, "operator": "crosses_above", "compare_to": "signal"}
+        - Compare indicators: {"indicator": "price", "operator": "gt", "compare_indicator": "ema", "compare_params": {"length": 50}}
         """
         indicator = condition.get("indicator", "")
         params = condition.get("params", {})
         op = condition.get("operator", "")
         value = condition.get("value")
         compare_to = condition.get("compare_to")
+        compare_indicator = condition.get("compare_indicator")
+        compare_params = condition.get("compare_params", {})
         
-        # Calculate indicator values
+        # Calculate main indicator values
         current = self.calc.calculate(symbol, indicator, params, timeframe)
         if current is None:
             return None
@@ -315,7 +326,25 @@ class GenericSignalEvaluator:
                 return None
             return self._evaluate_cross(current, previous, compare_to, op)
         
-        # Handle comparison operators
+        # Handle comparison against another indicator
+        if compare_indicator:
+            other = self.calc.calculate(symbol, compare_indicator, compare_params, timeframe)
+            if other is None:
+                return None
+            # Get first value from each
+            main_value = list(current.values())[0] if current else None
+            other_value = list(other.values())[0] if other else None
+            if main_value is None or other_value is None:
+                return None
+            
+            op_func = OPERATORS.get(op)
+            if op_func and op_func(main_value, other_value):
+                # Price > indicator = bullish = BUY
+                # Price < indicator = bearish = SELL
+                return "BUY" if op in ("gt", "gte") else "SELL"
+            return None
+        
+        # Handle comparison operators (against fixed value)
         return self._evaluate_comparison(current, op, value, compare_to)
     
     def _evaluate_cross(self, current: Dict, previous: Dict, compare_to: str, op: str) -> Optional[str]:
