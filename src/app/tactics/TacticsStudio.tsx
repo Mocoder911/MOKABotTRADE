@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
+import StrategyBuilder from "./StrategyBuilder";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface RiskMatrixRow {
@@ -307,6 +308,11 @@ export default function TacticsStudio() {
         <span className="font-mono">
           {rows.length} symbol{rows.length !== 1 ? "s" : ""} configured
         </span>
+      </div>
+
+      {/* ─── Strategy Builder ─────────────────────────────────────────────── */}
+      <div className="mt-8 pt-8 border-t border-gray-800/50">
+        <StrategyBuilder />
       </div>
     </div>
   );
