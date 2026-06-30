@@ -180,7 +180,7 @@ export default function HomePage() {
   const totalPL = trades.reduce((sum, t) => sum + t.livePL, 0);
 
   return (
-    <div className="max-w-[1400px] mx-auto flex flex-col gap-8">
+    <div className={`${activeTab === "market" ? "w-full px-4" : "max-w-[1400px] mx-auto"} flex flex-col ${activeTab === "market" ? "gap-4" : "gap-8"}`}>
       {/* ─── Tab Navigation ───────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 pt-2">
         <TabButton
