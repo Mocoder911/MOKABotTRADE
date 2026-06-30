@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import TacticsStudio from "./tactics/TacticsStudio";
+import MarketAnalysis from "./market/MarketAnalysis";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Trade {
@@ -16,7 +17,7 @@ interface Trade {
   openTime: string;
 }
 
-type TabId = "dashboard" | "tactics";
+type TabId = "dashboard" | "tactics" | "market";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function plColor(value: number): string {
@@ -196,6 +197,13 @@ export default function HomePage() {
         >
           Tactics Studio
         </TabButton>
+        <TabButton
+          active={activeTab === "market"}
+          onClick={() => setActiveTab("market")}
+          glowClass="text-violet-400 glow-violet"
+        >
+          Market Analysis
+        </TabButton>
       </div>
 
       {/* ─── Tab Content ──────────────────────────────────────────────────── */}
@@ -350,8 +358,10 @@ export default function HomePage() {
             </span>
           </div>
         </div>
-      ) : (
+      ) : activeTab === "tactics" ? (
         <TacticsStudio />
+      ) : (
+        <MarketAnalysis />
       )}
     </div>
   );
