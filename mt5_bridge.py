@@ -256,7 +256,7 @@ class GenericSignalEvaluator:
         rules format (from JSONB):
         {
             "conditions": [
-                {"indicator": "rsi", "params": {"length": 14}, "operator": "lt", "value": 30},
+                {"indicator": "rsi", "params": {"length": 14}, "operator": "lt", "value": 5},
                 {"indicator": "macd", "params": {"fast": 12, "slow": 26, "signal": 9}, "operator": "crosses_above", "compare_to": "signal"}
             ],
             "logic": "AND"  // or "OR"
