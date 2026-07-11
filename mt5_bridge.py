@@ -854,7 +854,7 @@ if __name__ == "__main__":
                 print(f"[BOT] ⏸  STANDBY — Monitoring only")
             
             print(f"--- Next in 10s ---\n")
-            time.sleep(10)
+            time.sleep(1)
         
         except KeyboardInterrupt:
             print("\n[BRIDGE] Stopping...")
