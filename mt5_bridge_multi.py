@@ -125,7 +125,7 @@ DEFAULT_GRID_STEP = 100          # Grid step in points
 DEFAULT_FIXED_LOT_SIZE = 0.02    # Fixed lot size - no multipliers
 DEFAULT_BASKET_TP = 50           # Basket take profit in USD
 DEFAULT_MAX_POSITIONS = 1        # Max open positions per symbol
-DEFAULT_EQUITY_SL_PCT = 10.0     # Equity stop loss percentage
+DEFAULT_EQUITY_SL_PCT = 0     # Equity stop loss percentage
 
 # ============================================
 # STRICT STRATEGY PROTOCOL
