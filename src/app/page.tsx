@@ -5,6 +5,7 @@ import MarketAnalysis from "./market/MarketAnalysis";
 import UserManagement from "./admin/UserManagement";
 import BridgeConsole from "./bridge/BridgeConsole";
 import AccountSettings from "./account/AccountSettings";
+import ProfitCalculator from "./profit-calculator/ProfitCalculator";
 import { useAuth } from "@/contexts/AuthContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -20,7 +21,7 @@ interface Trade {
   openTime: string;
 }
 
-type TabId = "dashboard" | "market" | "bridge" | "admin" | "account";
+type TabId = "dashboard" | "market" | "bridge" | "admin" | "account" | "profit-calculator";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function plColor(value: number | undefined | null): string {
@@ -350,6 +351,16 @@ export default function HomePage() {
         >
           Account
         </TabButton>
+        {/* Profit Calculator - Admin only */}
+        {isAdmin && (
+          <TabButton
+            active={activeTab === "profit-calculator"}
+            onClick={() => setActiveTab("profit-calculator")}
+            glowClass="text-emerald-400 glow-green"
+          >
+            Profit Calculator
+          </TabButton>
+        )}
       </div>
 
       {/* ─── Tab Content ──────────────────────────────────────────────────── */}
@@ -540,6 +551,8 @@ export default function HomePage() {
         <UserManagement />
       ) : activeTab === "account" ? (
         <AccountSettings />
+      ) : activeTab === "profit-calculator" ? (
+        <ProfitCalculator />
       ) : (
         <MarketAnalysis />
       )}
