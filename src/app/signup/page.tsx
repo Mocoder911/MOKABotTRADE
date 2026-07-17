@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState } from "react";
-import { supabase } from "@/lib/supabase-client";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -36,30 +35,45 @@ export default function SignupPage() {
       return;
     }
 
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
-          mt5_account_id: mt5AccountId,
-          mt5_password: mt5Password,
-          mt5_server: mt5Server,
-        },
-      },
-    });
-
-    if (error) {
-      console.error("Signup error:", error);
-      setError(error.message || "An unexpected error occurred. Please try again.");
+    // Validate MT5 credentials
+    if (!mt5AccountId || !mt5Password || !mt5Server) {
+      setError("All MT5 fields are required: Account ID, Password, and Server");
       setLoading(false);
       return;
     }
 
-    // Check if user was created but profile trigger might have failed
-    if (data?.user && !data.session) {
-      // Email confirmation required (if enabled)
-      setSuccess(true);
+    // Call server-side API that creates both auth user AND profile row
+    const res = await fetch("/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        password,
+        full_name: fullName,
+        mt5_account_id: mt5AccountId,
+        mt5_password: mt5Password,
+        mt5_server: mt5Server,
+      }),
+    });
+
+    const result = await res.json();
+
+    if (!res.ok) {
+      // Show detailed error message
+      let errorMsg = "An unexpected error occurred. Please try again.";
+      if (result.error) {
+        // Translate common Supabase errors
+        if (result.error.includes("already") || result.error.includes("exists")) {
+          errorMsg = "This email is already registered. Please use a different email or try logging in.";
+        } else if (result.error.includes("password")) {
+          errorMsg = "Password must be at least 6 characters.";
+        } else if (result.error.includes("invalid") || result.error.includes("format")) {
+          errorMsg = "Invalid email format. Please check your email address.";
+        } else {
+          errorMsg = result.error;
+        }
+      }
+      setError(errorMsg);
       setLoading(false);
       return;
     }

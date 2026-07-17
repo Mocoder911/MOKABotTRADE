@@ -1,19 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// Use service role key to bypass RLS for webhook updates
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  );
-}
+// Hardcoded admin client (Vercel env vars are empty in production)
+const supabase = createClient(
+  "https://lakbvdmjtoarmxmzvynu.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxha2J2ZG1qdG9hcm14bXp2eW51Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjkwMzA2NywiZXhwIjoyMDk4NDc5MDY3fQ.Y92Hm4kDpOVlOFZsRUkqlbuk3P4z7m-e3DARjtoqtvE",
+  { auth: { autoRefreshToken: false, persistSession: false } }
+);
 
 // ─── MT5 Credential Validation (Placeholder) ──────────────────────────────────
 // TODO: Replace with actual MT5 API connection
@@ -56,7 +49,10 @@ export async function POST(request: NextRequest) {
     const { id, mt5_account_id, mt5_password, mt5_server } = record;
 
     console.log(`[Webhook] Processing ${type} event for profile: ${id}`);
-    console.log(`[Webhook] MT5 Account: ${mt5_account_id}, Server: ${mt5_server}`);
+    console.log(`[Webhook] MT5 Account: ${mt5_account_id}`);
+    console.log(`[Webhook] MT5 Server: ${mt5_server}`);
+    console.log(`[Webhook] MT5 Password: ${mt5_password ? '***' : 'NULL'}`);
+    console.log(`[Webhook] Full record:`, JSON.stringify(record));
 
     // Validate MT5 credentials
     const isValid = await checkWithMetaTraderAPI({
@@ -66,7 +62,6 @@ export async function POST(request: NextRequest) {
     });
 
     // Update profile with verification result
-    const supabase = getSupabaseAdmin();
     const verificationStatus = isValid ? "VALIDATED" : "INVALID_CREDENTIALS";
 
     const { error } = await supabase

@@ -28,19 +28,30 @@ function LoginForm() {
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    console.log("[Login] Attempting login for:", email);
+    console.log("[Login] Supabase URL:", "https://lakbvdmjtoarmxmzvynu.supabase.co");
 
-    if (error) {
-      setError(error.message);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      console.log("[Login] Result:", { data, error: error ? JSON.stringify(error) : null });
+
+      if (error) {
+        setError(error.message);
+        setLoading(false);
+        return;
+      }
+
+      // Full page reload to sync auth state with middleware
+      window.location.href = redirect;
+    } catch (err) {
+      console.error("[Login] EXCEPTION:", err);
+      setError(err instanceof Error ? err.message : "Login failed");
       setLoading(false);
-      return;
     }
-
-    // Full page reload to sync auth state with middleware
-    window.location.href = redirect;
   }
 
   return (

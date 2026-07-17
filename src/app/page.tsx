@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import TacticsStudio from "./tactics/TacticsStudio";
 import MarketAnalysis from "./market/MarketAnalysis";
 import UserManagement from "./admin/UserManagement";
+import BridgeConsole from "./bridge/BridgeConsole";
+import AccountSettings from "./account/AccountSettings";
 import { useAuth } from "@/contexts/AuthContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -19,22 +20,25 @@ interface Trade {
   openTime: string;
 }
 
-type TabId = "dashboard" | "tactics" | "market" | "admin";
+type TabId = "dashboard" | "market" | "bridge" | "admin" | "account";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function plColor(value: number): string {
-  if (value > 0) return "text-emerald-400 glow-green";
-  if (value < 0) return "text-rose-400 glow-rose";
+function plColor(value: number | undefined | null): string {
+  const v = value ?? 0;
+  if (v > 0) return "text-emerald-400 glow-green";
+  if (v < 0) return "text-rose-400 glow-rose";
   return "text-gray-500";
 }
 
-function formatPL(value: number): string {
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(2)}`;
+function formatPL(value: number | undefined | null): string {
+  const v = value ?? 0;
+  const sign = v > 0 ? "+" : "";
+  return `${sign}${v.toFixed(2)}`;
 }
 
-function formatUSD(value: number): string {
-  return value.toLocaleString("en-US", {
+function formatUSD(value: number | undefined | null): string {
+  const v = value ?? 0;
+  return v.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -151,7 +155,7 @@ function TabButton({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function HomePage() {
-  const { profile, user, loading: authLoading, refreshProfile } = useAuth();
+  const { profile, user, loading: authLoading, refreshProfile, botActive, setBotActive } = useAuth();
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
@@ -159,7 +163,6 @@ export default function HomePage() {
   const [redirected, setRedirected] = useState(false);
   const [botToggling, setBotToggling] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string>("");
-  const [botActive, setBotActive] = useState(false);
 
   // Fetch bot_active from bot_status table
   const fetchBotStatus = useCallback(async () => {
@@ -173,7 +176,7 @@ export default function HomePage() {
     } catch {
       // silent
     }
-  }, [profile?.mt5_account_id]);
+  }, [profile?.mt5_account_id, setBotActive]);
 
   // Fetch bot status on mount and periodically
   useEffect(() => {
@@ -217,7 +220,19 @@ export default function HomePage() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      setTrades(json.trades);
+      // Map snake_case DB columns to camelCase interface
+      const mapped: Trade[] = (json.trades || []).map((t: Record<string, unknown>) => ({
+        ticket: String(t.ticket ?? ""),
+        symbol: String(t.symbol ?? ""),
+        type: (t.type === "BUY" ? "BUY" : "SELL") as "BUY" | "SELL",
+        volume: Number(t.volume ?? 0),
+        entry: Number(t.entry ?? 0),
+        sl: Number(t.sl ?? 0),
+        tp: Number(t.tp ?? 0),
+        livePL: Number(t.live_pl ?? 0),
+        openTime: String(t.open_time ?? ""),
+      }));
+      setTrades(mapped);
       setError(null);
       setLastSyncTime(new Date().toLocaleTimeString());
     } catch (err) {
@@ -290,7 +305,7 @@ export default function HomePage() {
   const totalPL = trades.reduce((sum, t) => sum + t.livePL, 0);
 
   return (
-    <div className={`${activeTab === "market" ? "w-full px-4" : "max-w-[1400px] mx-auto"} flex flex-col ${activeTab === "market" ? "gap-4" : "gap-8"}`}>
+    <div className={`${(activeTab === "market" || activeTab === "bridge") ? "w-full px-4" : "max-w-[1400px] mx-auto"} flex flex-col ${(activeTab === "market" || activeTab === "bridge") ? "gap-4" : "gap-8"}`}>
       {/* ─── Tab Navigation ───────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 pt-2">
         <TabButton
@@ -300,16 +315,6 @@ export default function HomePage() {
         >
           Trading Journal
         </TabButton>
-        {/* Tactics Studio - Admin only */}
-        {isAdmin && (
-          <TabButton
-            active={activeTab === "tactics"}
-            onClick={() => setActiveTab("tactics")}
-            glowClass="text-emerald-400 glow-green"
-          >
-            Tactics Studio
-          </TabButton>
-        )}
         <TabButton
           active={activeTab === "market"}
           onClick={() => setActiveTab("market")}
@@ -317,6 +322,16 @@ export default function HomePage() {
         >
           Live
         </TabButton>
+        {/* Bridge Console - Admin only */}
+        {isAdmin && (
+          <TabButton
+            active={activeTab === "bridge"}
+            onClick={() => setActiveTab("bridge")}
+            glowClass="text-sky-400"
+          >
+            Bridge
+          </TabButton>
+        )}
         {/* User Management - Admin only */}
         {isAdmin && (
           <TabButton
@@ -327,6 +342,14 @@ export default function HomePage() {
             User Management
           </TabButton>
         )}
+        {/* Account Settings */}
+        <TabButton
+          active={activeTab === "account"}
+          onClick={() => setActiveTab("account")}
+          glowClass="text-pink-400"
+        >
+          Account
+        </TabButton>
       </div>
 
       {/* ─── Tab Content ──────────────────────────────────────────────────── */}
@@ -371,7 +394,7 @@ export default function HomePage() {
                       : "text-rose-400/70"
                   }`}
                 >
-                  {profile?.bot_active ? "RUNNING" : "STOPPED"}
+                  {botActive ? "RUNNING" : "STOPPED"}
                 </span>
               </div>
               <button
@@ -483,14 +506,14 @@ export default function HomePage() {
                           {trade.type}
                         </span>
                       </Td>
-                      <Td className="text-gray-400">{trade.volume.toFixed(2)}</Td>
-                      <Td className="text-gray-300">{trade.entry}</Td>
-                      <Td className="text-rose-400/80">{trade.sl}</Td>
-                      <Td className="text-emerald-400/80">{trade.tp}</Td>
+                      <Td className="text-gray-400">{(trade.volume ?? 0).toFixed(2)}</Td>
+                      <Td className="text-gray-300">{trade.entry ?? "—"}</Td>
+                      <Td className="text-rose-400/80">{trade.sl ?? "—"}</Td>
+                      <Td className="text-emerald-400/80">{trade.tp ?? "—"}</Td>
                       <Td className={`font-bold ${plColor(trade.livePL)}`}>
                         {formatPL(trade.livePL)}
                       </Td>
-                      <Td className="text-gray-600 text-xs">{trade.openTime}</Td>
+                      <Td className="text-gray-600 text-xs">{trade.openTime || "—"}</Td>
                     </tr>
                   ))
                 )}
@@ -511,10 +534,12 @@ export default function HomePage() {
             </span>
           </div>
         </div>
-      ) : activeTab === "tactics" ? (
-        <TacticsStudio />
+      ) : activeTab === "bridge" ? (
+        <BridgeConsole />
       ) : activeTab === "admin" ? (
         <UserManagement />
+      ) : activeTab === "account" ? (
+        <AccountSettings />
       ) : (
         <MarketAnalysis />
       )}

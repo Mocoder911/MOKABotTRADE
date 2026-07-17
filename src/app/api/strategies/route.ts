@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  "https://lakbvdmjtoarmxmzvynu.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxha2J2ZG1qdG9hcm14bXp2eW51Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjkwMzA2NywiZXhwIjoyMDk4NDc5MDY3fQ.Y92Hm4kDpOVlOFZsRUkqlbuk3P4z7m-e3DARjtoqtvE",
+  { auth: { autoRefreshToken: false, persistSession: false } }
+);
 
 // GET all strategies
 export async function GET() {
-  const supabase = getSupabase();
   const { data, error } = await supabase
     .from("strategies")
     .select("*")
@@ -19,7 +24,6 @@ export async function GET() {
 
 // POST create a new strategy
 export async function POST(request: NextRequest) {
-  const supabase = getSupabase();
   const body = await request.json();
 
   const { name, description, symbol, entry_rules, exit_rules, sizing_rules, filters, is_active, priority, dry_run } = body;
@@ -55,7 +59,6 @@ export async function POST(request: NextRequest) {
 
 // PUT update a strategy
 export async function PUT(request: NextRequest) {
-  const supabase = getSupabase();
   const body = await request.json();
   const { id, ...updateData } = body;
 
@@ -80,7 +83,6 @@ export async function PUT(request: NextRequest) {
 
 // DELETE a strategy
 export async function DELETE(request: NextRequest) {
-  const supabase = getSupabase();
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
 

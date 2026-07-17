@@ -55,20 +55,51 @@ function MetricCard({ label, value, accent = "white" }: MetricCardProps) {
 
 // ─── Navbar ───────────────────────────────────────────────────────────────────
 export default function Navbar() {
-  const { profile, user, signOut } = useAuth();
+  const { profile, user, signOut, botActive, setBotActive } = useAuth();
   const pathname = usePathname();
   const [metrics, setMetrics] = useState<AccountMetrics | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
+
+  // Fetch bot status from bot_status table
+  const fetchBotStatus = useCallback(async () => {
+    const mt5Id = profile?.mt5_account_id;
+    const userId = user?.id;
+    if (!mt5Id && !userId) return;
+
+    const params = new URLSearchParams({ field: "bot_status" });
+    if (mt5Id) params.set("mt5_account_id", mt5Id);
+    else if (userId) params.set("user_id", userId);
+
+    try {
+      const res = await fetch(`/api/profiles?${params.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        setBotActive(json.bot_active ?? false);
+      }
+    } catch {
+      // silent
+    }
+  }, [profile?.mt5_account_id, user?.id, setBotActive]);
+
+  useEffect(() => {
+    fetchBotStatus();
+    const interval = setInterval(fetchBotStatus, 10000);
+    return () => clearInterval(interval);
+  }, [fetchBotStatus]);
 
   const fetchMetrics = useCallback(async () => {
     if (!user) return;
     setMetricsLoading(true);
     try {
-      const res = await fetch("/api/account/metrics", {
+      // Add timestamp to prevent caching
+      const timestamp = Date.now();
+      const res = await fetch(`/api/account/metrics?_t=${timestamp}`, {
         headers: { "x-user-id": user.id },
+        cache: "no-store",
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      console.log("[Navbar] Metrics fetched:", data);
       setMetrics({
         balance: data.balance,
         equity: data.equity,
@@ -146,17 +177,36 @@ export default function Navbar() {
         <div className="flex items-center gap-4 shrink-0">
           {/* User info */}
           {profile && (
-            <div className="hidden lg:flex flex-col items-end">
-              <span className="text-sm font-medium text-white">{profile.full_name}</span>
-              <span className="text-[10px] uppercase tracking-wider text-gray-500">
-                {profile.role} &bull; {profile.status}
-              </span>
+            <div className="hidden lg:flex items-center gap-3">
+              {/* Avatar */}
+              <div className="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 overflow-hidden flex items-center justify-center">
+                {profile.avatar_url ? (
+                  <Image
+                    src={profile.avatar_url}
+                    alt={profile.full_name}
+                    width={40}
+                    height={40}
+                    className="w-full h-full object-cover"
+                    unoptimized
+                  />
+                ) : (
+                  <span className="text-sm font-bold text-gray-500">
+                    {profile.full_name ? profile.full_name.charAt(0).toUpperCase() : "?"}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col items-end">
+                <span className="text-sm font-medium text-white">{profile.full_name}</span>
+                <span className="text-[10px] uppercase tracking-wider text-gray-500">
+                  {profile.role} &bull; {profile.status}
+                </span>
+              </div>
             </div>
           )}
 
           {/* Bot Status — reflects real bot_active state */}
           <div className="flex items-center gap-2">
-            {profile?.bot_active ? (
+            {botActive ? (
               <>
                 <span className="relative flex h-3 w-3">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -193,7 +243,7 @@ export default function Navbar() {
           </button>
 
           {/* Sign out */}
-          {profile && (
+          {user && (
             <button
               onClick={signOut}
               className="text-xs text-gray-500 hover:text-rose-400 border border-gray-800 hover:border-rose-500/30 rounded-lg px-3 py-1.5 transition-all duration-200"

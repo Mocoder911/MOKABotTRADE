@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabase, getSupabaseAdmin } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 
-// Direct admin client with hardcoded key (same as Python bridge)
+// Direct admin client with hardcoded key (Vercel env vars are empty in production)
 const supabaseAdmin = createClient(
-  "https://gonfmiqwothggojdmglf.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdvbmZtaXF3b3RoZ2dvamRtZ2xmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4Mjc2Nzk5NiwiZXhwIjoyMDk4MzQzOTk2fQ.MJ1T20lriV99v_uczf3n-D52ybqODBKGiXSjjW8tudI",
+  "https://lakbvdmjtoarmxmzvynu.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxha2J2ZG1qdG9hcm14bXp2eW51Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjkwMzA2NywiZXhwIjoyMDk4NDc5MDY3fQ.Y92Hm4kDpOVlOFZsRUkqlbuk3P4z7m-e3DARjtoqtvE",
   { auth: { autoRefreshToken: false, persistSession: false } }
 );
 
@@ -16,11 +15,28 @@ export async function GET(request: NextRequest) {
   const mt5AccountId = searchParams.get("mt5_account_id");
 
   // Return bot_status from bot_status table
-  if (field === "bot_status" && mt5AccountId) {
+  if (field === "bot_status") {
+    let resolvedMt5Id = mt5AccountId;
+
+    // If no mt5_account_id provided, look it up from profiles using user_id
+    const userId = searchParams.get("user_id");
+    if (!resolvedMt5Id && userId) {
+      const { data: prof } = await supabaseAdmin
+        .from("profiles")
+        .select("mt5_account_id")
+        .eq("id", userId)
+        .maybeSingle();
+      resolvedMt5Id = prof?.mt5_account_id ?? null;
+    }
+
+    if (!resolvedMt5Id) {
+      return NextResponse.json({ bot_active: false });
+    }
+
     const { data, error } = await supabaseAdmin
       .from("bot_status")
       .select("bot_active")
-      .eq("mt5_account_id", mt5AccountId)
+      .eq("mt5_account_id", resolvedMt5Id)
       .maybeSingle();
 
     if (error) {
@@ -30,9 +46,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ bot_active: data?.bot_active ?? false });
   }
 
-  // Default: return all profiles
-  const supabase = getSupabase();
-  const { data, error } = await supabase
+  // Default: return all profiles (using admin client to bypass RLS)
+  const { data, error } = await supabaseAdmin
     .from("profiles")
     .select("*")
     .order("created_at", { ascending: false });
@@ -47,7 +62,6 @@ export async function GET(request: NextRequest) {
 // POST — Admin creates a new user (requires Service Role Key)
 export async function POST(request: NextRequest) {
   try {
-    const supabase = getSupabaseAdmin(); // Use admin client for auth.admin operations
     const body = await request.json();
 
     const {
@@ -70,7 +84,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 1. Create user in Supabase Auth
-    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: true, // Auto-confirm email
@@ -100,7 +114,7 @@ export async function POST(request: NextRequest) {
     if (mt5_password) profileData.mt5_password = mt5_password;
     if (mt5_server) profileData.mt5_server = mt5_server;
 
-    const { data: profileData2, error: profileError } = await supabase
+    const { data: profileData2, error: profileError } = await supabaseAdmin
       .from("profiles")
       .insert(profileData)
       .select()
@@ -109,7 +123,7 @@ export async function POST(request: NextRequest) {
     if (profileError) {
       console.error("Profile create error:", profileError.message);
       // Try to clean up the auth user if profile creation fails
-      await supabase.auth.admin.deleteUser(userId);
+      await supabaseAdmin.auth.admin.deleteUser(userId);
       return NextResponse.json({ error: profileError.message }, { status: 500 });
     }
 
@@ -126,16 +140,21 @@ export async function POST(request: NextRequest) {
 // PUT update a profile
 export async function PUT(request: NextRequest) {
   const body = await request.json();
-  const { id, role, status, bot_active } = body;
+  const { id, role, status, bot_active, full_name, mt5_account_id, mt5_password, mt5_server, avatar_url } = body;
 
   if (!id) {
     return NextResponse.json({ error: "Profile ID is required" }, { status: 400 });
   }
 
-  // Update profile fields (role, status) in profiles table
+  // Update profile fields in profiles table
   const profileUpdate: Record<string, unknown> = {};
   if (role !== undefined) profileUpdate.role = role;
   if (status !== undefined) profileUpdate.status = status;
+  if (full_name !== undefined) profileUpdate.full_name = full_name;
+  if (mt5_account_id !== undefined) profileUpdate.mt5_account_id = mt5_account_id;
+  if (mt5_password !== undefined) profileUpdate.mt5_password = mt5_password;
+  if (mt5_server !== undefined) profileUpdate.mt5_server = mt5_server;
+  if (avatar_url !== undefined) profileUpdate.avatar_url = avatar_url;
 
   if (Object.keys(profileUpdate).length > 0) {
     const { data, error } = await supabaseAdmin
@@ -158,7 +177,7 @@ export async function PUT(request: NextRequest) {
       .from("profiles")
       .select("mt5_account_id")
       .eq("id", id)
-      .single();
+      .maybeSingle();
 
     if (!profile?.mt5_account_id) {
       return NextResponse.json({ error: "No mt5_account_id found for this profile" }, { status: 400 });

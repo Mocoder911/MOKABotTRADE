@@ -16,6 +16,7 @@ export interface Profile {
   mt5_server?: string;
   bot_active?: boolean;
   verification_status?: "PENDING" | "VALIDATED" | "INVALID_CREDENTIALS";
+  avatar_url?: string;
   created_at: string;
 }
 
@@ -24,6 +25,8 @@ interface AuthContextType {
   profile: Profile | null;
   session: Session | null;
   loading: boolean;
+  botActive: boolean;
+  setBotActive: (v: boolean) => void;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -33,6 +36,8 @@ const AuthContext = createContext<AuthContextType>({
   profile: null,
   session: null,
   loading: true,
+  botActive: false,
+  setBotActive: () => {},
   signOut: async () => {},
   refreshProfile: async () => {},
 });
@@ -45,6 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [botActive, setBotActive] = useState(false);
 
   // Fetch profile from profiles table
   const fetchProfile = async (userId: string): Promise<Profile | null> => {
@@ -52,7 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .from("profiles")
       .select("*")
       .eq("id", userId)
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error("Profile fetch error:", error.message);
@@ -128,7 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, profile, session, loading, signOut, refreshProfile }}
+      value={{ user, profile, session, loading, botActive, setBotActive, signOut, refreshProfile }}
     >
       {children}
     </AuthContext.Provider>
