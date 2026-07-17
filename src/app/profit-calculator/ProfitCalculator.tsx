@@ -12,10 +12,18 @@ interface BalanceData {
 // ─── Profit Calculator Component ──────────────────────────────────────────────
 export default function ProfitCalculator() {
   const { user } = useAuth();
-  const [capital, setCapital] = useState<number>(0);
-  const [lotSize, setLotSize] = useState<number>(0.02);
   const [balanceData, setBalanceData] = useState<BalanceData | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // ─── RATE Section (Configurable) ───────────────────────────────────────────
+  const [profitPerLot, setProfitPerLot] = useState<number>(500); // Profit per 1.00 lot ($)
+  const [dealsPerCycle, setDealsPerCycle] = useState<number>(20); // Deals per cycle
+  const [capitalPerLot, setCapitalPerLot] = useState<number>(500); // Capital per 0.02 lot ($)
+  const [profitShare, setProfitShare] = useState<number>(0.5); // Profit share (50%)
+
+  // ─── INPUT Section ─────────────────────────────────────────────────────────
+  const [capital, setCapital] = useState<number>(0); // Capital ($)
+  const [lotSizeChosen, setLotSizeChosen] = useState<number>(0.02); // Lot size chosen
 
   // Fetch real-time balance from account_balance
   useEffect(() => {
@@ -45,13 +53,18 @@ export default function ProfitCalculator() {
   }, [user]);
 
   // ─── Calculations ───────────────────────────────────────────────────────────
-  const maxLotAllowed = capital > 0 ? (capital / 500) * 0.02 : 0;
-  const profitPerDeal = lotSize * 500;
-  const cycleGross = profitPerDeal * 20;
-  const shareA = cycleGross * 0.5;
-  const shareB = cycleGross * 0.5;
+  // INPUT calculations
+  const maxLotAllowed = capital > 0 ? (capital / capitalPerLot) * 0.02 : 0;
+  const percentOfMaxUsed = maxLotAllowed > 0 ? (lotSizeChosen / maxLotAllowed) * 100 : 0;
+  const checkStatus = lotSizeChosen <= maxLotAllowed ? "OK" : "EXCEEDED";
+
+  // OUTPUT calculations
+  const profitPerDeal = lotSizeChosen * profitPerLot;
+  const cycleGross = profitPerDeal * dealsPerCycle;
+  const shareA = cycleGross * profitShare;
+  const shareB = cycleGross * profitShare;
   const returnOnCapital = capital > 0 ? (cycleGross / capital) * 100 : 0;
-  const checkStatus = lotSize <= maxLotAllowed ? "OK" : "EXCEEDED";
+  const capitalAfterCycle = capital + shareA;
 
   // ─── Helper Functions ───────────────────────────────────────────────────────
   const formatUSD = (value: number) => {
@@ -116,50 +129,10 @@ export default function ProfitCalculator() {
         </div>
       </div>
 
-      {/* Input Section */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Capital Input */}
-        <div className="flex flex-col gap-3 p-6 rounded-2xl border border-gray-800/50 bg-gray-950/40">
-          <label className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-medium">
-            Capital (USD)
-          </label>
-          <input
-            type="number"
-            value={capital}
-            onChange={(e) => setCapital(Number(e.target.value) || 0)}
-            className="w-full px-4 py-3 rounded-xl bg-gray-900/50 border border-gray-800/50 text-white font-mono text-lg focus:outline-none focus:border-cyan-500/50 transition-colors"
-            placeholder="Enter capital amount"
-            step="0.01"
-            min="0"
-          />
-          <span className="text-xs text-gray-600">
-            Current balance: ${formatUSD(balanceData?.balance ?? 0)}
-          </span>
-        </div>
-
-        {/* Lot Size Input */}
-        <div className="flex flex-col gap-3 p-6 rounded-2xl border border-gray-800/50 bg-gray-950/40">
-          <label className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-medium">
-            Lot Size Chosen
-          </label>
-          <input
-            type="number"
-            value={lotSize}
-            onChange={(e) => setLotSize(Number(e.target.value) || 0)}
-            className="w-full px-4 py-3 rounded-xl bg-gray-900/50 border border-gray-800/50 text-white font-mono text-lg focus:outline-none focus:border-cyan-500/50 transition-colors"
-            placeholder="Enter lot size"
-            step="0.01"
-            min="0"
-          />
-          <span className="text-xs text-gray-600">
-            Recommended: {formatLot(maxLotAllowed)} lots max
-          </span>
-        </div>
-      </div>
-
       {/* Results Table */}
       <div className="overflow-hidden rounded-2xl border border-gray-800/50 bg-gray-950/40">
         <table className="w-full">
+          {/* ─── RATE Section ──────────────────────────────────────────────── */}
           <thead>
             <tr className="bg-gray-900/50 border-b border-gray-800/50">
               <th colSpan={3} className="px-6 py-4 text-left">
@@ -171,20 +144,65 @@ export default function ProfitCalculator() {
           </thead>
           <tbody>
             <tr className="border-b border-gray-800/30 hover:bg-gray-900/30 transition-colors">
-              <td className="px-6 py-4 text-sm text-gray-400">Maximum lot allowed</td>
-              <td className="px-6 py-4 text-sm font-mono text-white text-right">
-                {formatLot(maxLotAllowed)}
+              <td className="px-6 py-4 text-sm text-gray-400">Profit per 1.00 lot</td>
+              <td className="px-6 py-4 text-right">
+                <input
+                  type="number"
+                  value={profitPerLot}
+                  onChange={(e) => setProfitPerLot(Number(e.target.value) || 0)}
+                  className="w-32 px-3 py-1.5 rounded-lg bg-gray-900/50 border border-gray-800/50 text-white font-mono text-sm text-right focus:outline-none focus:border-cyan-500/50"
+                  step="1"
+                  min="0"
+                />
               </td>
-              <td className="px-6 py-4 text-xs text-gray-600 text-right">lots</td>
+              <td className="px-6 py-4 text-xs text-gray-600 text-right">$</td>
             </tr>
             <tr className="border-b border-gray-800/30 hover:bg-gray-900/30 transition-colors">
-              <td className="px-6 py-4 text-sm text-gray-400">Profit per deal</td>
-              <td className="px-6 py-4 text-sm font-mono text-emerald-400 glow-green text-right">
-                ${formatUSD(profitPerDeal)}
+              <td className="px-6 py-4 text-sm text-gray-400">Deals per cycle</td>
+              <td className="px-6 py-4 text-right">
+                <input
+                  type="number"
+                  value={dealsPerCycle}
+                  onChange={(e) => setDealsPerCycle(Number(e.target.value) || 0)}
+                  className="w-32 px-3 py-1.5 rounded-lg bg-gray-900/50 border border-gray-800/50 text-white font-mono text-sm text-right focus:outline-none focus:border-cyan-500/50"
+                  step="1"
+                  min="0"
+                />
               </td>
-              <td className="px-6 py-4 text-xs text-gray-600 text-right">USD</td>
+              <td className="px-6 py-4 text-xs text-gray-600 text-right">deals</td>
+            </tr>
+            <tr className="border-b border-gray-800/30 hover:bg-gray-900/30 transition-colors">
+              <td className="px-6 py-4 text-sm text-gray-400">Capital per 0.02 lot</td>
+              <td className="px-6 py-4 text-right">
+                <input
+                  type="number"
+                  value={capitalPerLot}
+                  onChange={(e) => setCapitalPerLot(Number(e.target.value) || 0)}
+                  className="w-32 px-3 py-1.5 rounded-lg bg-gray-900/50 border border-gray-800/50 text-white font-mono text-sm text-right focus:outline-none focus:border-cyan-500/50"
+                  step="1"
+                  min="0"
+                />
+              </td>
+              <td className="px-6 py-4 text-xs text-gray-600 text-right">$</td>
+            </tr>
+            <tr className="border-b border-gray-800/30 hover:bg-gray-900/30 transition-colors">
+              <td className="px-6 py-4 text-sm text-gray-400">Profit share</td>
+              <td className="px-6 py-4 text-right">
+                <input
+                  type="number"
+                  value={profitShare}
+                  onChange={(e) => setProfitShare(Number(e.target.value) || 0)}
+                  className="w-32 px-3 py-1.5 rounded-lg bg-gray-900/50 border border-gray-800/50 text-white font-mono text-sm text-right focus:outline-none focus:border-cyan-500/50"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                />
+              </td>
+              <td className="px-6 py-4 text-xs text-gray-600 text-right">{(profitShare * 100).toFixed(0)}%</td>
             </tr>
           </tbody>
+
+          {/* ─── INPUT Section ─────────────────────────────────────────────── */}
           <thead>
             <tr className="bg-gray-900/50 border-b border-gray-800/50">
               <th colSpan={3} className="px-6 py-4 text-left">
@@ -196,46 +214,42 @@ export default function ProfitCalculator() {
           </thead>
           <tbody>
             <tr className="border-b border-gray-800/30 hover:bg-gray-900/30 transition-colors">
-              <td className="px-6 py-4 text-sm text-gray-400">Cycle gross (20 deals)</td>
+              <td className="px-6 py-4 text-sm text-gray-400">Capital</td>
+              <td className="px-6 py-4 text-right">
+                <input
+                  type="number"
+                  value={capital}
+                  onChange={(e) => setCapital(Number(e.target.value) || 0)}
+                  className="w-32 px-3 py-1.5 rounded-lg bg-gray-900/50 border border-gray-800/50 text-white font-mono text-sm text-right focus:outline-none focus:border-cyan-500/50"
+                  step="0.01"
+                  min="0"
+                />
+              </td>
+              <td className="px-6 py-4 text-xs text-gray-600 text-right">$</td>
+            </tr>
+            <tr className="border-b border-gray-800/30 hover:bg-gray-900/30 transition-colors">
+              <td className="px-6 py-4 text-sm text-gray-400">Maximum lot allowed</td>
               <td className="px-6 py-4 text-sm font-mono text-white text-right">
-                {formatUSD(cycleGross)}
+                {maxLotAllowed.toFixed(4)}
               </td>
-              <td className="px-6 py-4 text-xs text-gray-600 text-right">USD</td>
-            </tr>
-          </tbody>
-          <thead>
-            <tr className="bg-gray-900/50 border-b border-gray-800/50">
-              <th colSpan={3} className="px-6 py-4 text-left">
-                <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-400 font-bold">
-                  OUTPUT
-                </span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="border-b border-gray-800/30 hover:bg-gray-900/30 transition-colors">
-              <td className="px-6 py-4 text-sm text-gray-400">Share A (50%)</td>
-              <td className="px-6 py-4 text-sm font-mono text-emerald-400 glow-green text-right">
-                ${formatUSD(shareA)}
-              </td>
-              <td className="px-6 py-4 text-xs text-gray-600 text-right">USD</td>
+              <td className="px-6 py-4 text-xs text-gray-600 text-right">lots</td>
             </tr>
             <tr className="border-b border-gray-800/30 hover:bg-gray-900/30 transition-colors">
-              <td className="px-6 py-4 text-sm text-gray-400">Share B (50%)</td>
-              <td className="px-6 py-4 text-sm font-mono text-emerald-400 glow-green text-right">
-                ${formatUSD(shareB)}
+              <td className="px-6 py-4 text-sm text-gray-400">Lot size chosen</td>
+              <td className="px-6 py-4 text-right">
+                <input
+                  type="number"
+                  value={lotSizeChosen}
+                  onChange={(e) => setLotSizeChosen(Number(e.target.value) || 0)}
+                  className="w-32 px-3 py-1.5 rounded-lg bg-gray-900/50 border border-gray-800/50 text-white font-mono text-sm text-right focus:outline-none focus:border-cyan-500/50"
+                  step="0.01"
+                  min="0"
+                />
               </td>
-              <td className="px-6 py-4 text-xs text-gray-600 text-right">USD</td>
+              <td className="px-6 py-4 text-xs text-gray-600 text-right">lots</td>
             </tr>
             <tr className="border-b border-gray-800/30 hover:bg-gray-900/30 transition-colors">
-              <td className="px-6 py-4 text-sm text-gray-400">Return on capital</td>
-              <td className="px-6 py-4 text-sm font-mono text-cyan-400 glow-cyan text-right">
-                {formatPercent(returnOnCapital)}
-              </td>
-              <td className="px-6 py-4 text-xs text-gray-600 text-right">ROI</td>
-            </tr>
-            <tr className="hover:bg-gray-900/30 transition-colors">
-              <td className="px-6 py-4 text-sm text-gray-400">Check logic</td>
+              <td className="px-6 py-4 text-sm text-gray-400">Check</td>
               <td className="px-6 py-4 text-sm font-mono text-right">
                 <span
                   className={`px-3 py-1 rounded-lg text-xs font-bold ${
@@ -251,6 +265,68 @@ export default function ProfitCalculator() {
                 {checkStatus === "OK" ? "Safe" : "Risk"}
               </td>
             </tr>
+            <tr className="border-b border-gray-800/30 hover:bg-gray-900/30 transition-colors">
+              <td className="px-6 py-4 text-sm text-gray-400">Percent of maximum used</td>
+              <td className="px-6 py-4 text-sm font-mono text-cyan-400 glow-cyan text-right">
+                {percentOfMaxUsed.toFixed(2)}%
+              </td>
+              <td className="px-6 py-4 text-xs text-gray-600 text-right">%</td>
+            </tr>
+          </tbody>
+
+          {/* ─── OUTPUT Section ────────────────────────────────────────────── */}
+          <thead>
+            <tr className="bg-gray-900/50 border-b border-gray-800/50">
+              <th colSpan={3} className="px-6 py-4 text-left">
+                <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-400 font-bold">
+                  OUTPUT
+                </span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-b border-gray-800/30 hover:bg-gray-900/30 transition-colors">
+              <td className="px-6 py-4 text-sm text-gray-400">Profit per deal</td>
+              <td className="px-6 py-4 text-sm font-mono text-emerald-400 glow-green text-right">
+                ${formatUSD(profitPerDeal)}
+              </td>
+              <td className="px-6 py-4 text-xs text-gray-600 text-right">= Lot size × Profit per 1.00 lot</td>
+            </tr>
+            <tr className="border-b border-gray-800/30 hover:bg-gray-900/30 transition-colors">
+              <td className="px-6 py-4 text-sm text-gray-400">Cycle gross, {dealsPerCycle} deals</td>
+              <td className="px-6 py-4 text-sm font-mono text-white text-right">
+                ${formatUSD(cycleGross)}
+              </td>
+              <td className="px-6 py-4 text-xs text-gray-600 text-right">= Profit per deal × Deals per cycle</td>
+            </tr>
+            <tr className="border-b border-gray-800/30 hover:bg-gray-900/30 transition-colors">
+              <td className="px-6 py-4 text-sm text-gray-400">Share A, {(profitShare * 100).toFixed(0)}%</td>
+              <td className="px-6 py-4 text-sm font-mono text-emerald-400 glow-green text-right">
+                ${formatUSD(shareA)}
+              </td>
+              <td className="px-6 py-4 text-xs text-gray-600 text-right">= Cycle gross × Profit share</td>
+            </tr>
+            <tr className="border-b border-gray-800/30 hover:bg-gray-900/30 transition-colors">
+              <td className="px-6 py-4 text-sm text-gray-400">Share B, {(profitShare * 100).toFixed(0)}%</td>
+              <td className="px-6 py-4 text-sm font-mono text-emerald-400 glow-green text-right">
+                ${formatUSD(shareB)}
+              </td>
+              <td className="px-6 py-4 text-xs text-gray-600 text-right">= Cycle gross × Profit share</td>
+            </tr>
+            <tr className="border-b border-gray-800/30 hover:bg-gray-900/30 transition-colors">
+              <td className="px-6 py-4 text-sm text-gray-400">Return on capital</td>
+              <td className="px-6 py-4 text-sm font-mono text-cyan-400 glow-cyan text-right">
+                {formatPercent(returnOnCapital)}
+              </td>
+              <td className="px-6 py-4 text-xs text-gray-600 text-right">ROI</td>
+            </tr>
+            <tr className="hover:bg-gray-900/30 transition-colors">
+              <td className="px-6 py-4 text-sm text-gray-400">Capital after cycle</td>
+              <td className="px-6 py-4 text-sm font-mono text-emerald-400 glow-green text-right">
+                ${formatUSD(capitalAfterCycle)}
+              </td>
+              <td className="px-6 py-4 text-xs text-gray-600 text-right">= Capital + Share A</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -258,9 +334,9 @@ export default function ProfitCalculator() {
       {/* Footer Info */}
       <div className="flex items-center justify-between text-xs text-gray-600 px-1 pb-4">
         <span>
-          Lot size: <span className="font-mono text-gray-400">{formatLot(lotSize)}</span>
+          Lot size: <span className="font-mono text-gray-400">{lotSizeChosen.toFixed(4)}</span>
           {" / "}
-          Max: <span className="font-mono text-gray-400">{formatLot(maxLotAllowed)}</span>
+          Max: <span className="font-mono text-gray-400">{maxLotAllowed.toFixed(4)}</span>
         </span>
         <span className="font-mono">
           Auto-refresh: 10s
