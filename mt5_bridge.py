@@ -1,507 +1,798 @@
 """
-MOKABotTRADE — Grid EA Engine
-==============================
-Architecture: Multi-Symbol Grid Trading System
-- Opens positions on ALL Forex pairs simultaneously
-- Grid orders at fixed point intervals
-- Basket profit closes all orders per symbol
-- All parameters configurable from Supabase (grid_config table)
-- Excludes: Commodities (XAU, XAG, Oil) and Crypto (BTC, ETH)
+MOKABotTRADE — MT5 ↔ Supabase Bridge (Generic Strategy Framework)
+==================================================================
+Architecture: Generic Rule Executor
+- ALL trading logic is defined in Supabase JSONB
+- No hardcoded indicators or conditions in Python
+- Uses pandas-ta for dynamic indicator calculation
+- Any indicator change in DB = immediate behavior change
+
+Tables used:
+  - strategies: Entry/Exit/Sizing rules (JSONB)
+  - risk_matrix: Per-symbol risk parameters
+  - account_balance: Live account metrics
+  - trades: Open positions sync
+  - trade_signals: Signal audit log
+  - execution_log: Trade execution log
+
+JSONB Rule Format:
+  entry_rules: {
+    "conditions": [
+      {"indicator": "rsi", "params": {"length": 14}, "operator": "lt", "value": 30},
+      {"indicator": "macd", "params": {"fast": 12, "slow": 26, "signal": 9}, "operator": "crosses_above", "compare_to": "signal"}
+    ],
+    "logic": "AND"  // or "OR"
+  }
 """
+
 import MetaTrader5 as mt5
+import pandas as pd
+import pandas_ta as ta
 import time
 import sys
-import json
-import hashlib
-import multiprocessing
-from datetime import datetime, timezone
-from typing import Optional, Dict, List, Any
+import operator
+from datetime import datetime
+from typing import Optional, Dict, List, Any, Callable
 from supabase import create_client
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SUPABASE CONFIGURATION
+# CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
-SUPABASE_URL = "https://lakbvdmjtoarmxmzvynu.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxha2J2ZG1qdG9hcm14bXp2eW51Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjkwMzA2NywiZXhwIjoyMDk4NDc5MDY3fQ.Y92Hm4kDpOVlOFZsRUkqlbuk3P4z7m-e3DARjtoqtvE"
+SUPABASE_URL = "https://gonfmiqwothggojdmglf.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdvbmZtaXF3b3RoZ2dvamRtZ2xmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4Mjc2Nzk5NiwiZXhwIjoyMDk4MzQzOTk2fQ.MJ1T20lriV99v_uczf3n-D52ybqODBKGiXSjjW8tudI"
 
+LOGIN = 260904217
+PASSWORD = "Kikokok3@"
+SERVER = "Exness-MT5Trial15"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SUPABASE CLIENT
+# ═══════════════════════════════════════════════════════════════════════════════
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# MT5 CREDENTIALS — Loaded from Supabase profiles table
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def load_credentials(target_account_id: str = None):
-    """Load MT5 credentials from profiles table.
-    If target_account_id is provided, load that specific account.
-    Otherwise, load the first active profile."""
-    try:
-        query = supabase.table("profiles").select(
-            "mt5_account_id, mt5_password, mt5_server"
-        ).eq("status", "active").not_.is_("mt5_account_id", "null")
-
-        if target_account_id:
-            query = query.eq("mt5_account_id", target_account_id)
-
-        result = query.limit(1).execute()
-
-        if result.data and result.data[0].get('mt5_account_id'):
-            profile = result.data[0]
-            return (
-                int(profile['mt5_account_id']),
-                profile['mt5_password'],
-                profile.get('mt5_server', 'Exness-MT5Real')
-            )
-    except Exception as e:
-        print(f"[CONFIG ERROR] {e}")
-
-    # Fallback defaults — supports both accounts
-    ACCOUNTS = {
-        "474202217": (474202217, "Kikokok3@", "Exness-MT5Trial15"),
-        "256711835": (256711835, "Kikokok3@", "Exness-MT5Real35"),
-    }
-    if target_account_id and target_account_id in ACCOUNTS:
-        return ACCOUNTS[target_account_id]
-    # Default to first account
-    return (474202217, "Kikokok3@", "Exness-MT5Trial15")
-
-
-# Accept optional account ID from command line: python mt5_bridge.py 474194522
-_target = sys.argv[1] if len(sys.argv) > 1 else None
-LOGIN, PASSWORD, SERVER = load_credentials(_target)
-print(f"[CONFIG] Loaded: Account {LOGIN} on {SERVER}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SYMBOL WHITELIST — Forex ONLY (22 pairs, suffix: m)
+# OPERATOR MAP — Maps JSON operators to Python functions
 # ═══════════════════════════════════════════════════════════════════════════════
-ALLOWED_SYMBOLS = {
-    "EURUSDm", "GBPUSDm", "USDJPYm", "USDCADm", "AUDUSDm", "NZDUSDm",
-    "USDCHFm", "EURJPYm", "GBPJPYm", "CADJPYm", "AUDJPYm", "NZDJPYm",
-    "CHFJPYm", "EURCADm", "GBPCADm", "EURAUDm", "GBPAUDm", "EURCHFm",
-    "GBPCHFm", "CADCHFm",
+OPERATORS: Dict[str, Callable] = {
+    "lt": operator.lt,           # less than
+    "gt": operator.gt,           # greater than
+    "lte": operator.le,          # less than or equal
+    "gte": operator.ge,          # greater than or equal
+    "eq": operator.eq,           # equal
+    "neq": operator.ne,          # not equal
+    "crosses_above": None,       # special handling
+    "crosses_below": None,       # special handling
 }
 
-# Explicitly excluded (crypto, metals, indices — never trade these)
-EXCLUDED_PREFIXES = ("BTC", "ETH", "XAU", "XAG", "US5", "UK1")
-
-
-def is_forex_pair(symbol: str) -> bool:
-    """Return True only if symbol is in the strict Forex whitelist (exact match, case-sensitive)."""
-    return symbol in ALLOWED_SYMBOLS
-
-
-def is_excluded_symbol(symbol: str) -> bool:
-    """Return True if symbol is crypto/metal/index that must NOT be traded."""
-    upper = symbol.upper()
-    for prefix in EXCLUDED_PREFIXES:
-        if upper.startswith(prefix):
-            return True
-    return False
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MAGIC NUMBER GENERATOR — Deterministic per (account, symbol)
+# INDICATOR CALCULATOR — Generic, uses pandas-ta
 # ═══════════════════════════════════════════════════════════════════════════════
-def generate_magic_number(account_id: str, symbol: str) -> int:
-    """Generate a unique magic number for each (account, symbol) pair."""
-    key = f"{account_id}_{symbol}"
-    return 100000 + int(hashlib.md5(key.encode()).hexdigest()[:6], 16) % 900000
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# GRID ENGINE — Core logic
-# ═══════════════════════════════════════════════════════════════════════════════
-class GridEngine:
+class IndicatorCalculator:
     """
-    Grid EA Engine — manages grid trading across all Forex pairs.
-
-    DB-driven configuration (grid_config table):
-      - lot_size:      Position size per order (default 0.07)
-      - grid_step:     Distance between grid orders in points (default 500)
-      - max_orders:    Maximum orders per symbol (default 10)
-      - basket_profit: Target profit ($) to close entire basket (default 20.0)
+    Generic indicator calculator using pandas-ta.
+    Calculates ANY indicator by name + params from JSONB.
     """
-
+    
+    # Timeframe mapping
+    TIMEFRAMES = {
+        "M1": mt5.TIMEFRAME_M1,
+        "M5": mt5.TIMEFRAME_M5,
+        "M15": mt5.TIMEFRAME_M15,
+        "M30": mt5.TIMEFRAME_M30,
+        "H1": mt5.TIMEFRAME_H1,
+        "H4": mt5.TIMEFRAME_H4,
+        "D1": mt5.TIMEFRAME_D1,
+        "W1": mt5.TIMEFRAME_W1,
+    }
+    
     def __init__(self):
-        self._config: Optional[Dict] = None
-        self._config_time: float = 0
-        self._basket_counter: Dict[str, int] = {}  # Track basket cycles per symbol
-        self._volume_blacklist: set = set()  # Symbols that failed with Invalid volume
-
-    # ─── Configuration ─────────────────────────────────────────────────────
-    def fetch_config(self, mt5_account_id: str, force: bool = False) -> Dict:
-        """Fetch grid config from DB. Cached for 30 seconds."""
+        self._cache: Dict[str, pd.DataFrame] = {}
+        self._cache_time: Dict[str, float] = {}
+    
+    def get_dataframe(self, symbol: str, timeframe: str = "M15", bars: int = 200) -> Optional[pd.DataFrame]:
+        """Fetch OHLCV data and convert to pandas DataFrame"""
+        cache_key = f"{symbol}_{timeframe}"
         now = time.time()
-        if not force and self._config and now - self._config_time < 30:
-            return self._config
-
+        
+        # Cache for 5 seconds
+        if cache_key in self._cache and now - self._cache_time.get(cache_key, 0) < 5:
+            return self._cache[cache_key]
+        
+        tf = self.TIMEFRAMES.get(timeframe, mt5.TIMEFRAME_M15)
+        rates = mt5.copy_rates_from_pos(symbol, tf, 0, bars)
+        
+        if rates is None or len(rates) == 0:
+            return None
+        
+        df = pd.DataFrame(rates)
+        df['time'] = pd.to_datetime(df['time'], unit='s')
+        df.set_index('time', inplace=True)
+        
+        self._cache[cache_key] = df
+        self._cache_time[cache_key] = now
+        return df
+    
+    def calculate(self, symbol: str, indicator_name: str, params: Dict, timeframe: str = "M15") -> Optional[Any]:
+        """
+        Calculate ANY indicator dynamically.
+        
+        indicator_name: lowercase name (rsi, macd, bbands, sma, ema, price, etc.)
+        params: parameters dict from JSONB
+        
+        Returns the indicator value(s) or None.
+        """
+        df = self.get_dataframe(symbol, timeframe)
+        if df is None or len(df) < 50:
+            return None
+        
+        # Special case: "price" returns current close price
+        if indicator_name.lower() == "price":
+            return {"price": df['close'].iloc[-1]}
+        
+        # Convert indicator name to pandas-ta function name
+        indicator_lower = indicator_name.lower().replace(" ", "").replace("_", "")
+        
         try:
-            result = supabase.table("grid_config").select("*").eq(
-                "mt5_account_id", mt5_account_id
-            ).maybe_single().execute()
-
-            if result.data:
-                self._config = result.data
-                self._config_time = now
-                return self._config
+            # Use pandas-ta's strategy method to add indicator
+            # pandas-ta supports 100+ indicators dynamically
+            result = self._call_pandas_ta(df, indicator_lower, params)
+            return result
         except Exception as e:
-            print(f"[GRID CONFIG] Error: {e}")
-
-        # Fallback defaults
-        self._config = {
-            "lot_size": 0.07,
-            "grid_step": 500,
-            "max_orders": 10,
-            "basket_profit": 20.0,
+            print(f"[INDICATOR] Error calculating {indicator_name}: {e}")
+            return None
+    
+    def _call_pandas_ta(self, df: pd.DataFrame, indicator: str, params: Dict) -> Optional[Any]:
+        """
+        Dynamically call pandas-ta indicator.
+        Returns the latest value(s) of the indicator.
+        """
+        # Map common indicator names to pandas-ta function names
+        indicator_map = {
+            "rsi": "rsi",
+            "macd": "macd",
+            "sma": "sma",
+            "ema": "ema",
+            "wma": "wma",
+            "bbands": "bbands",
+            "stoch": "stoch",
+            "atr": "atr",
+            "adx": "adx",
+            "cci": "cci",
+            "willr": "willr",
+            "roc": "roc",
+            "mom": "mom",
+            "dmi": "dmi",
+            "aroon": "aroon",
+            "supertrend": "supertrend",
+            "psar": "psar",
+            "vwap": "vwap",
+            "obv": "obv",
+            "mfi": "mfi",
+            "keltner": "keltner_channel",
+            "donchian": "donchian",
+            "pivot": "pivot_points",
         }
-        return self._config
+        
+        ta_func_name = indicator_map.get(indicator, indicator)
+        
+        # Get the pandas-ta function
+        ta_func = getattr(df.ta, ta_func_name, None)
+        if ta_func is None:
+            # Try the strategy approach
+            return self._use_strategy(df, indicator, params)
+        
+        # Call the function with params
+        result = ta_func(**params, append=True)
+        
+        # Get the last value(s)
+        if result is not None:
+            # Find columns that were added
+            new_cols = [c for c in df.columns if ta_func_name.upper() in str(c).upper()]
+            if new_cols:
+                return {col: df[col].iloc[-1] for col in new_cols}
+        
+        return None
+    
+    def _use_strategy(self, df: pd.DataFrame, indicator: str, params: Dict) -> Optional[Any]:
+        """Use pandas-ta strategy for complex indicators"""
+        try:
+            # Create a custom strategy with just this indicator
+            strategy = ta.Strategy(
+                name=f"dynamic_{indicator}",
+                ta=[{"kind": indicator, **params}]
+            )
+            df.ta.strategy(strategy)
+            
+            # Return last values of newly added columns
+            original_cols = {'open', 'high', 'low', 'close', 'volume', 'tick_volume', 'spread', 'real_volume'}
+            new_cols = [c for c in df.columns if c not in original_cols]
+            
+            if new_cols:
+                return {col: df[col].iloc[-1] for col in new_cols}
+        except Exception as e:
+            print(f"[INDICATOR] Strategy error for {indicator}: {e}")
+        
+        return None
+    
+    def get_previous_value(self, symbol: str, indicator_name: str, params: Dict, timeframe: str = "M15") -> Optional[Any]:
+        """Get the previous candle's indicator value (for cross detection)"""
+        df = self.get_dataframe(symbol, timeframe)
+        if df is None or len(df) < 50:
+            return None
+        
+        indicator_lower = indicator_name.lower().replace(" ", "").replace("_", "")
+        
+        try:
+            ta_func = getattr(df.ta, indicator_lower, None)
+            if ta_func:
+                ta_func(**params, append=True)
+                new_cols = [c for c in df.columns if indicator_lower.upper() in str(c).upper()]
+                if new_cols and len(df) >= 2:
+                    return {col: df[col].iloc[-2] for col in new_cols}
+        except:
+            pass
+        
+        return None
 
-    # ─── Symbol Management ─────────────────────────────────────────────────
-    def get_allowed_symbols(self) -> List[str]:
-        """Get all available Forex symbols from MT5 (auto-select all)."""
-        all_symbols = mt5.symbols_get()
-        if not all_symbols:
-            return []
 
-        allowed = []
-        for s in all_symbols:
-            if is_forex_pair(s.name):
-                # Select symbol in Market Watch if not already visible
-                if not s.visible:
-                    if not mt5.symbol_select(s.name, True):
-                        continue
+# ═══════════════════════════════════════════════════════════════════════════════
+# GENERIC SIGNAL EVALUATOR — Reads rules from JSONB, no hardcoded logic
+# ═══════════════════════════════════════════════════════════════════════════════
+class GenericSignalEvaluator:
+    """
+    Evaluates ANY trading rule defined in JSONB.
+    No hardcoded indicators or conditions.
+    """
+    
+    def __init__(self, calculator: IndicatorCalculator):
+        self.calc = calculator
+    
+    def evaluate(self, symbol: str, rules: Dict) -> Optional[str]:
+        """
+        Evaluate rules and return signal: 'BUY', 'SELL', or None.
+        
+        rules format (from JSONB):
+        {
+            "conditions": [
+                {"indicator": "rsi", "params": {"length": 14}, "operator": "lt", "value": 5},
+                {"indicator": "macd", "params": {"fast": 12, "slow": 26, "signal": 9}, "operator": "crosses_above", "compare_to": "signal"}
+            ],
+            "logic": "AND"  // or "OR"
+        }
+        """
+        conditions = rules.get("conditions", [])
+        logic = rules.get("logic", "AND").upper()
+        timeframe = rules.get("timeframe", "M15")
+        
+        if not conditions:
+            return None
+        
+        results = []
+        for condition in conditions:
+            result = self._evaluate_condition(symbol, condition, timeframe)
+            if result is not None:
+                results.append(result)
+        
+        if not results:
+            return None
+        
+        # Apply logic (AND/OR)
+        if logic == "AND":
+            # All conditions must agree
+            buy_count = results.count("BUY")
+            sell_count = results.count("SELL")
+            
+            if buy_count == len(results):
+                return "BUY"
+            elif sell_count == len(results):
+                return "SELL"
+            return None
+        else:  # OR
+            if "BUY" in results:
+                return "BUY"
+            if "SELL" in results:
+                return "SELL"
+            return None
+    
+    def _evaluate_condition(self, symbol: str, condition: Dict, timeframe: str) -> Optional[str]:
+        """
+        Evaluate a single condition from JSONB.
+        Returns 'BUY', 'SELL', or None.
+        
+        Supports:
+        - Simple: {"indicator": "rsi", "params": {"length": 14}, "operator": "lt", "value": 30}
+        - Cross: {"indicator": "macd", "params": {...}, "operator": "crosses_above", "compare_to": "signal"}
+        - Compare indicators: {"indicator": "price", "operator": "gt", "compare_indicator": "ema", "compare_params": {"length": 50}}
+        """
+        indicator = condition.get("indicator", "")
+        params = condition.get("params", {})
+        op = condition.get("operator", "")
+        value = condition.get("value")
+        compare_to = condition.get("compare_to")
+        compare_indicator = condition.get("compare_indicator")
+        compare_params = condition.get("compare_params", {})
+        
+        # Calculate main indicator values
+        current = self.calc.calculate(symbol, indicator, params, timeframe)
+        if current is None:
+            return None
+        
+        # Handle cross detection
+        if op in ("crosses_above", "crosses_below"):
+            previous = self.calc.get_previous_value(symbol, indicator, params, timeframe)
+            if previous is None:
+                return None
+            return self._evaluate_cross(current, previous, compare_to, op)
+        
+        # Handle comparison against another indicator
+        if compare_indicator:
+            other = self.calc.calculate(symbol, compare_indicator, compare_params, timeframe)
+            if other is None:
+                return None
+            # Get first value from each
+            main_value = list(current.values())[0] if current else None
+            other_value = list(other.values())[0] if other else None
+            if main_value is None or other_value is None:
+                return None
+            
+            op_func = OPERATORS.get(op)
+            if op_func and op_func(main_value, other_value):
+                # Price > indicator = bullish = BUY
+                # Price < indicator = bearish = SELL
+                return "BUY" if op in ("gt", "gte") else "SELL"
+            return None
+        
+        # Handle comparison operators (against fixed value)
+        return self._evaluate_comparison(current, op, value, compare_to)
+    
+    def _evaluate_cross(self, current: Dict, previous: Dict, compare_to: str, op: str) -> Optional[str]:
+        """Evaluate cross conditions"""
+        # Find the main line and compare line
+        main_key = None
+        compare_key = None
+        
+        for key in current.keys():
+            key_lower = key.lower()
+            if compare_to and compare_to.lower() in key_lower:
+                compare_key = key
+            elif main_key is None:
+                main_key = key
+        
+        if main_key is None or compare_key is None:
+            # Fallback: use first two keys
+            keys = list(current.keys())
+            if len(keys) >= 2:
+                main_key = keys[0]
+                compare_key = keys[1]
+            else:
+                return None
+        
+        curr_main = current[main_key]
+        curr_compare = current[compare_key]
+        prev_main = previous.get(main_key, curr_main)
+        prev_compare = previous.get(compare_key, curr_compare)
+        
+        if op == "crosses_above":
+            # Main was below compare, now above
+            if prev_main <= prev_compare and curr_main > curr_compare:
+                return "BUY"
+        elif op == "crosses_below":
+            # Main was above compare, now below
+            if prev_main >= prev_compare and curr_main < curr_compare:
+                return "SELL"
+        
+        return None
+    
+    def _evaluate_comparison(self, current: Dict, op: str, value: Any, compare_to: str) -> Optional[str]:
+        """Evaluate comparison operators"""
+        op_func = OPERATORS.get(op)
+        if op_func is None:
+            return None
+        
+        # Find the value to compare
+        if compare_to:
+            # Compare two indicator lines
+            compare_value = None
+            for key in current.keys():
+                if compare_to.lower() in key.lower():
+                    compare_value = current[key]
+                    break
+            if compare_value is None:
+                return None
+            
+            # Get the main value (first non-compare key)
+            main_value = None
+            for key in current.keys():
+                if compare_to.lower() not in key.lower():
+                    main_value = current[key]
+                    break
+            
+            if main_value is None:
+                return None
+            
+            if op_func(main_value, compare_value):
+                return "BUY" if op in ("lt", "lte", "crosses_below") else "SELL"
+        else:
+            # Compare against fixed value
+            main_value = list(current.values())[0] if current else None
+            if main_value is None:
+                return None
+            
+            if op_func(main_value, value):
+                # Determine direction based on operator
+                if op in ("lt", "lte"):
+                    return "BUY"  # Oversold
+                elif op in ("gt", "gte"):
+                    return "SELL"  # Overbought
+                elif op == "eq":
+                    return "BUY" if main_value == value else None
+        
+        return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RISK MANAGER — Reads risk_matrix from DB
+# ═══════════════════════════════════════════════════════════════════════════════
+class RiskManager:
+    """Calculates position sizes, SL/TP based on risk_matrix table"""
+    
+    def __init__(self):
+        self._cache: Dict[str, Dict] = {}
+        self._last_fetch = 0
+    
+    def fetch_risk_params(self, symbol: str, force_refresh: bool = False) -> Optional[Dict]:
+        """Fetch risk parameters for a symbol from DB"""
+        now = time.time()
+        if force_refresh or now - self._last_fetch > 30:
+            try:
+                result = supabase.table("risk_matrix").select("*").execute()
+                if result.data:
+                    self._cache = {row["symbol"]: row for row in result.data}
+                    self._last_fetch = now
+            except Exception as e:
+                print(f"[RISK] Error fetching risk_matrix: {e}")
+        
+        return self._cache.get(symbol)
+    
+    def calculate_volume(self, symbol: str, balance: float, sizing_rules: Dict) -> float:
+        """Calculate position volume based on sizing rules from JSONB"""
+        risk_params = self.fetch_risk_params(symbol)
+        if not risk_params:
+            return 0.0
+        
+        mode = sizing_rules.get("mode", "fixed")
+        max_volume = sizing_rules.get("max_volume", 1.0)
+        base_volume = risk_params.get("base_volume", 0.01)
+        
+        if mode == "risk_percent":
+            risk_per_trade = sizing_rules.get("risk_per_trade", 1.0)
+            risk_amount = balance * (risk_per_trade / 100)
+            sl_points = risk_params.get("sl_points", 100)
+            
+            tick_value = self._get_tick_value(symbol)
+            if tick_value and sl_points > 0:
+                risk_per_lot = sl_points * tick_value
+                if risk_per_lot > 0:
+                    volume = risk_amount / risk_per_lot
+                    # Round to lot step
+                    info = mt5.symbol_info(symbol)
+                    if info:
+                        step = info.volume_step
+                        volume = round(volume / step) * step
+                    return min(max(volume, 0.01), max_volume)
+        
+        return min(base_volume, max_volume)
+    
+    def get_sl_tp(self, symbol: str, trade_type: str, entry_price: float) -> tuple:
+        """Get SL and TP prices based on risk_matrix"""
+        risk_params = self.fetch_risk_params(symbol)
+        if not risk_params:
+            return (0.0, 0.0)
+        
+        sl_points = risk_params.get("sl_points", 0)
+        tp_points = risk_params.get("tp_points", 0)
+        
+        point = self._get_point(symbol)
+        if not point:
+            return (0.0, 0.0)
+        
+        if trade_type == "BUY":
+            sl = entry_price - (sl_points * point)
+            tp = entry_price + (tp_points * point)
+        else:
+            sl = entry_price + (sl_points * point)
+            tp = entry_price - (tp_points * point)
+        
+        return (round(sl, 5), round(tp, 5))
+    
+    def _get_point(self, symbol: str) -> Optional[float]:
+        try:
+            info = mt5.symbol_info(symbol)
+            return info.point if info else None
+        except:
+            return None
+    
+    def _get_tick_value(self, symbol: str) -> Optional[float]:
+        try:
+            info = mt5.symbol_info(symbol)
+            return info.trade_tick_value if info else None
+        except:
+            return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# STRATEGY ENGINE — Orchestrates everything
+# ═══════════════════════════════════════════════════════════════════════════════
+class StrategyEngine:
+    """Main engine: reads strategies from DB, evaluates, executes"""
+    
+    def __init__(self):
+        self.calculator = IndicatorCalculator()
+        self.evaluator = GenericSignalEvaluator(self.calculator)
+        self.risk_manager = RiskManager()
+        self._strategies_cache: List[Dict] = []
+        self._last_strategy_fetch = 0
+    
+    def fetch_active_strategies(self, force_refresh: bool = False) -> List[Dict]:
+        """Fetch active strategies from DB"""
+        now = time.time()
+        if force_refresh or now - self._last_strategy_fetch > 30:
+            try:
+                result = supabase.table("strategies") \
+                    .select("*") \
+                    .eq("is_active", True) \
+                    .order("priority", desc=True) \
+                    .execute()
+                
+                if result.data:
+                    self._strategies_cache = result.data
+                    self._last_strategy_fetch = now
+                    print(f"[ENGINE] Loaded {len(result.data)} active strategies")
+                    for s in result.data:
+                        print(f"         - {s['name']}: {s['symbol']} | Entry: {json.dumps(s.get('entry_rules', {}))[:50]}...")
                 else:
-                    # Ensure it stays selected
-                    mt5.symbol_select(s.name, True)
-                allowed.append(s.name)
-
-        return allowed
-
-    # ─── Grid Logic Per Symbol ─────────────────────────────────────────────
-    def manage_grid(self, symbol: str, config: Dict, magic: int) -> None:
-        """
-        Manage grid for a single symbol with direction lock:
-        1. Scan for conflicting positions (BUY+SELL) → STOP trading this symbol
-        2. If no positions → open initial BUY order
-        3. If basket profit >= target → close all (basket closed)
-        4. If price moved grid_step → add grid order in SAME direction only
-        """
-        # Skip if symbol is blacklisted for invalid volume
-        if symbol in self._volume_blacklist:
-            print(f"[GRID] {symbol} — Skipped (volume blacklist)")
+                    self._strategies_cache = []
+            except Exception as e:
+                print(f"[ENGINE] Error fetching strategies: {e}")
+        
+        return self._strategies_cache
+    
+    def process_cycle(self, bot_active: bool):
+        """Process one cycle"""
+        if not bot_active:
             return
-
-        lot_size = config.get("lot_size", 0.07)
-        grid_step = config.get("grid_step", 500)
-        max_orders = config.get("max_orders", 10)
-        basket_profit = config.get("basket_profit", 20.0)
-
-        # Get all positions for this symbol with our magic number
-        positions = mt5.positions_get(symbol=symbol)
-        all_pos_count = len(positions) if positions else 0
-        my_positions = [p for p in (positions or []) if p.magic == magic]
-
-        # Debug: show what we see
-        if all_pos_count > 0:
-            print(f"[GRID] {symbol} — {all_pos_count} total positions, {len(my_positions)} with our magic ({magic})")
-
-        # ── SAFETY: Detect conflicting positions (BUY + Sell on same symbol) ──
-        if my_positions:
-            buy_count = sum(1 for p in my_positions if p.type == mt5.POSITION_TYPE_BUY)
-            sell_count = sum(1 for p in my_positions if p.type == mt5.POSITION_TYPE_SELL)
-            if buy_count > 0 and sell_count > 0:
-                print(f"[CONFLICT] {symbol} — Has {buy_count} BUY + {sell_count} SELL positions! STOPPED. Manual intervention required.")
-                return  # Do NOT trade this symbol until conflict is resolved
-
-        # ── No positions: Open initial BUY order ──
-        if not my_positions:
-            self._basket_counter[symbol] = self._basket_counter.get(symbol, 0) + 1
-            basket_num = self._basket_counter[symbol]
-            print(f"[GRID] {symbol} — No positions. Opening initial BUY order (basket #{basket_num})")
-            self._open_order(symbol, "BUY", lot_size, magic)
+        
+        strategies = self.fetch_active_strategies()
+        if not strategies:
             return
-
-        # ── Determine grid direction from first position ──
-        first_pos = min(my_positions, key=lambda p: p.time)
-        grid_direction = "BUY" if first_pos.type == mt5.POSITION_TYPE_BUY else "SELL"
-
-        # ── Calculate basket profit ──
-        total_profit = sum(p.profit + p.swap + getattr(p, 'commission', 0.0) for p in my_positions)
-
-        # ── Basket profit reached → Close all ──
-        if total_profit >= basket_profit:
-            print(f"[GRID] {symbol} — Basket profit ${total_profit:.2f} >= ${basket_profit:.2f} → Closing {len(my_positions)} orders")
-            self._close_all(my_positions)
-            return
-
-        # ── Check if we should add a grid order ──
-        if len(my_positions) >= max_orders:
-            return  # Max orders reached
-
-        # Find the last (most recent) position price
-        last_pos = max(my_positions, key=lambda p: p.time)
-        last_price = last_pos.price_open
-
-        # Get current price
-        tick = mt5.symbol_info_tick(symbol)
-        if not tick:
-            return
-
-        info = mt5.symbol_info(symbol)
-        if not info or info.point == 0:
-            return
-
-        current_price = tick.ask
-
-        # Calculate grid distance in points
-        distance_points = abs(current_price - last_price) / info.point
-
-        if distance_points >= grid_step:
-            # Only add grid order in the SAME direction as existing positions
-            if grid_direction == "BUY":
-                if current_price < last_price:
-                    print(f"[GRID] {symbol} — Adding BUY grid order #{len(my_positions) + 1} @ {current_price:.5f} (distance: {distance_points:.0f} pts)")
-                    self._open_order(symbol, "BUY", lot_size, magic)
-            else:  # SELL direction
-                if current_price > last_price:
-                    print(f"[GRID] {symbol} — Adding SELL grid order #{len(my_positions) + 1} @ {current_price:.5f} (distance: {distance_points:.0f} pts)")
-                    self._open_order(symbol, "SELL", lot_size, magic)
-
-    # ─── Volume Validation ─────────────────────────────────────────────────
-    def _validate_volume(self, symbol: str, requested_volume: float) -> float:
-        """Validate and adjust lot size based on symbol's volume constraints."""
-        info = mt5.symbol_info(symbol)
-        if not info:
-            return requested_volume
-
-        vol_min = getattr(info, 'volume_min', 0.01) or 0.01
-        vol_max = getattr(info, 'volume_max', 100.0) or 100.0
-        vol_step = getattr(info, 'volume_step', 0.01) or 0.01
-
-        # Crypto special handling: default to 0.01 if requested volume is too high
-        if symbol in ("BTCUSDm", "ETHUSDm") and requested_volume > vol_max:
-            requested_volume = 0.01
-
-        # Clamp to min/max
-        volume = max(vol_min, min(requested_volume, vol_max))
-
-        # Round to nearest step
-        if vol_step > 0:
-            volume = round(round(volume / vol_step) * vol_step, 2)
-
-        # Final safety: ensure within bounds after rounding
-        volume = max(vol_min, min(volume, vol_max))
-
-        return volume
-
-    # ─── Order Execution ───────────────────────────────────────────────────
-    def _open_order(self, symbol: str, order_type: str, volume: float, magic: int) -> bool:
-        """Open a raw market order — NO SL/TP (basket profit only). Checks free margin and volume constraints."""
-        # ── Free margin safety check ──
+        
         account_info = mt5.account_info()
         if not account_info:
-            return False
-        if account_info.margin_free < (volume * 100):  # Rough check: ~$100 needed for 0.07 lot
-            print(f"[MARGIN] {symbol} — Insufficient free margin (${account_info.margin_free:.2f}). Skipping.")
-            return False
-
+            return
+        
+        balance = account_info.balance
+        positions = mt5.positions_get()
+        open_symbols = {p.symbol for p in positions} if positions else set()
+        
+        for strategy in strategies:
+            symbol = strategy.get("symbol")
+            if not symbol:
+                continue
+            
+            entry_rules = strategy.get("entry_rules", {})
+            exit_rules = strategy.get("exit_rules", {})
+            sizing_rules = strategy.get("sizing_rules", {})
+            filters = strategy.get("filters", {})
+            
+            # Check filters
+            if not self._check_filters(symbol, filters):
+                continue
+            
+            # Check existing positions
+            if symbol in open_symbols:
+                position = next((p for p in positions if p.symbol == symbol), None)
+                if position:
+                    self._evaluate_exit(strategy, position, exit_rules)
+            else:
+                # Evaluate entry using GENERIC evaluator
+                signal = self.evaluator.evaluate(symbol, entry_rules)
+                if signal:
+                    self._execute_entry(strategy, symbol, signal, sizing_rules, balance)
+    
+    def _check_filters(self, symbol: str, filters: Dict) -> bool:
+        """Check filters from JSONB"""
+        # Max spread
+        max_spread = filters.get("max_spread_points")
+        if max_spread:
+            tick = mt5.symbol_info_tick(symbol)
+            info = mt5.symbol_info(symbol)
+            if tick and info:
+                spread = int((tick.ask - tick.bid) / info.point)
+                if spread > max_spread:
+                    return False
+        
+        # Sessions
+        sessions = filters.get("sessions", [])
+        if sessions:
+            current_hour = datetime.utcnow().hour
+            session_hours = {
+                "sydney": (22, 7), "tokyo": (0, 9),
+                "london": (7, 16), "new_york": (12, 21),
+            }
+            in_session = any(
+                start <= current_hour < end
+                for s in sessions if s in session_hours
+                for start, end in [session_hours[s]]
+            )
+            if not in_session:
+                return False
+        
+        return True
+    
+    def _execute_entry(self, strategy: Dict, symbol: str, signal: str,
+                       sizing_rules: Dict, balance: float):
+        """Execute entry order (or simulate if dry_run=True)"""
+        strategy_id = strategy.get("id")
+        strategy_name = strategy.get("name")
+        dry_run = strategy.get("dry_run", True)  # Default to dry_run=True for safety
+            
+        volume = self.risk_manager.calculate_volume(symbol, balance, sizing_rules)
+        if volume <= 0:
+            self._log_signal(strategy_id, symbol, f"ENTRY_{signal}", "SKIPPED", "Invalid volume")
+            return
+            
         tick = mt5.symbol_info_tick(symbol)
         if not tick:
-            return False
-
-        info = mt5.symbol_info(symbol)
-        if not info:
-            return False
-
-        # ── Volume validation ──
-        volume = self._validate_volume(symbol, volume)
-
-        price = tick.ask if order_type == "BUY" else tick.bid
-        order_side = mt5.ORDER_TYPE_BUY if order_type == "BUY" else mt5.ORDER_TYPE_SELL
-
+            return
+            
+        price = tick.ask if signal == "BUY" else tick.bid
+        sl, tp = self.risk_manager.get_sl_tp(symbol, signal, price)
+            
+        # ─── DRY RUN MODE: Simulate without executing ──────────────────────
+        if dry_run:
+            print(f"[DRY RUN] {signal} {symbol} @ {price} | Vol: {volume} | SL: {sl} | TP: {tp}")
+            self._log_execution(
+                strategy_id, 
+                f"SIM_{int(time.time())}",  # Fake ticket
+                "SIMULATED", 
+                symbol, 
+                volume, 
+                price, 
+                sl, 
+                tp,
+                {"mode": "dry_run", "signal": signal},
+                is_dry_run=True
+            )
+            self._log_signal(strategy_id, symbol, f"ENTRY_{signal}", "SIMULATED", "Dry run - no real order")
+            return
+            
+        # ─── LIVE MODE: Execute real order ─────────────────────────────────
+        order_type = mt5.ORDER_TYPE_BUY if signal == "BUY" else mt5.ORDER_TYPE_SELL
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
             "volume": volume,
-            "type": order_side,
+            "type": order_type,
             "price": price,
-            "sl": 0.0,
-            "tp": 0.0,
+            "sl": sl,
+            "tp": tp,
             "deviation": 20,
-            "magic": magic,
-            "comment": "MOKA_GRID",
+            "magic": 100000 + hash(strategy_id) % 100000,
+            "comment": f"MOKA:{strategy_name[:10]}",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": mt5.ORDER_FILLING_IOC,
         }
-
+            
         result = mt5.order_send(request)
-
+            
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-            print(f"[EXECUTE] {order_type} {symbol} @ {price} | Vol: {volume} | Ticket: {result.order}")
-            return True
-        elif result and result.retcode == mt5.TRADE_RETCODE_NO_MONEY:
-            print(f"[MARGIN] {symbol} — Not enough money to open {volume} lot. Skipping.")
-            return False
-        elif result and result.retcode == mt5.TRADE_RETCODE_INVALID_VOLUME:
-            print(f"[VOLUME ERROR] {symbol} — Invalid volume {volume}. Blacklisting for this cycle.")
-            self._volume_blacklist.add(symbol)
-            return False
+            print(f"[EXECUTE] {signal} {symbol} @ {price} | Vol: {volume} | SL: {sl} | TP: {tp}")
+            self._log_execution(strategy_id, result.order, "OPEN", symbol, volume, price, sl, tp,
+                              {"retcode": result.retcode}, is_dry_run=False)
+            self._log_signal(strategy_id, symbol, f"ENTRY_{signal}", "EXECUTED", f"Ticket: {result.order}")
         else:
             error = result.comment if result else "No result"
-            print(f"[EXECUTE FAILED] {order_type} {symbol}: {error}")
-            return False
-
-    def _close_all(self, positions: list) -> None:
-        """Close all positions in the basket."""
-        for pos in positions:
-            tick = mt5.symbol_info_tick(pos.symbol)
-            if not tick:
-                continue
-
-            close_price = tick.bid if pos.type == mt5.POSITION_TYPE_BUY else tick.ask
-            close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.POSITION_TYPE_BUY else mt5.ORDER_TYPE_BUY
-
-            request = {
-                "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": pos.symbol,
-                "volume": pos.volume,
-                "type": close_type,
-                "position": pos.ticket,
-                "price": close_price,
-                "deviation": 20,
-                "magic": pos.magic,
-                "comment": "MOKA_GRID_CLOSE",
-                "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": mt5.ORDER_FILLING_IOC,
-            }
-
-            result = mt5.order_send(request)
-            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                print(f"[CLOSE] {pos.symbol} ticket {pos.ticket} | P/L: ${pos.profit:.2f}")
-            else:
-                error = result.comment if result else "No result"
-                print(f"[CLOSE FAILED] {pos.symbol} ticket {pos.ticket}: {error}")
+            print(f"[EXECUTE FAILED] {signal} {symbol}: {error}")
+            self._log_signal(strategy_id, symbol, f"ENTRY_{signal}", "FAILED", error)
+    
+    def _evaluate_exit(self, strategy: Dict, position, exit_rules: Dict):
+        """Evaluate exit — currently relies on SL/TP set at entry"""
+        # Exit rules are handled by MT5 SL/TP
+        # Additional exit logic can be added via JSONB here
+        pass
+    
+    def _log_signal(self, strategy_id: str, symbol: str, signal_type: str,
+                   action_taken: str, reason: str):
+        """Log to trade_signals"""
+        try:
+            supabase.table("trade_signals").insert({
+                "strategy_id": strategy_id,
+                "symbol": symbol,
+                "signal_type": signal_type,
+                "signal_data": {},
+                "action_taken": action_taken,
+                "action_reason": reason,
+            }).execute()
+        except Exception as e:
+            print(f"[LOG] Signal error: {e}")
+    
+    def _log_execution(self, strategy_id: str, ticket: str, action: str, symbol: str,
+                      volume: float, price: float, sl: float, tp: float, result: Dict,
+                      is_dry_run: bool = False):
+        """Log to execution_log"""
+        try:
+            supabase.table("execution_log").insert({
+                "strategy_id": strategy_id,
+                "ticket": str(ticket),
+                "action": action,
+                "symbol": symbol,
+                "volume": volume,
+                "price": price,
+                "sl": sl,
+                "tp": tp,
+                "result": result,
+                "is_dry_run": is_dry_run,
+            }).execute()
+        except Exception as e:
+            print(f"[LOG] Execution error: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# DATA SYNC — Balance, Trades, Bot Status
+# DATA SYNC
 # ═══════════════════════════════════════════════════════════════════════════════
 def get_user_id(mt5_account_id: str) -> Optional[str]:
     try:
-        result = supabase.table("profiles").select("id").eq(
-            "mt5_account_id", mt5_account_id).maybe_single().execute()
+        result = supabase.table("profiles").select("id").eq("mt5_account_id", mt5_account_id).maybe_single().execute()
         return result.data["id"] if result.data else None
-    except Exception:
+    except:
         return None
-
 
 def sync_account_balance(mt5_account_id: str):
     info = mt5.account_info()
     if not info:
-        print("  [BALANCE ERROR] Could not get account info")
         return
     user_id = get_user_id(mt5_account_id)
     if not user_id:
-        print(f"  [BALANCE ERROR] No user found for account {mt5_account_id}")
         return
     try:
         supabase.table("account_balance").upsert({
-            "user_id": user_id,
-            "balance": info.balance,
-            "equity": info.equity,
-            "updated_at": "now()",
+            "user_id": user_id, "balance": info.balance, "equity": info.equity, "updated_at": "now()",
         }, on_conflict="user_id").execute()
-        print(f"  [BALANCE] Synced: balance=${info.balance:.2f} equity=${info.equity:.2f}")
-    except Exception as e:
-        print(f"  [BALANCE ERROR] {e}")
-
+    except:
+        pass
 
 def sync_trades(mt5_account_id: str):
-    """Sync all open positions to Supabase trades table."""
     positions = mt5.positions_get() or []
     current_tickets = set()
-
     for pos in positions:
         ticket = str(pos.ticket)
         current_tickets.add(ticket)
         try:
-            margin = getattr(pos, 'margin', 0.0) or 0.0
-            live_pl = pos.profit
             supabase.table("trades").upsert({
-                "ticket": ticket,
-                "account_id": mt5_account_id,
-                "symbol": pos.symbol,
+                "ticket": ticket, "account_id": mt5_account_id, "symbol": pos.symbol,
                 "type": "BUY" if pos.type == mt5.POSITION_TYPE_BUY else "SELL",
-                "volume": pos.volume,
-                "entry": pos.price_open,
-                "sl": pos.sl,
-                "tp": pos.tp,
-                "live_pl": live_pl,
-                "margin": margin,
-                "open_time": datetime.fromtimestamp(pos.time).isoformat(),
-                "status": "open",
+                "volume": pos.volume, "entry": pos.price_open, "sl": pos.sl, "tp": pos.tp,
+                "live_pl": pos.profit, "margin": pos.margin,
+                "open_time": datetime.fromtimestamp(pos.time).isoformat(), "status": "open",
             }, on_conflict="ticket").execute()
-        except Exception as e:
-            print(f"  [SYNC ERROR] Ticket {ticket}: {e}")
-
-    # Mark closed trades
+        except:
+            pass
+    
     try:
-        db_trades = supabase.table("trades").select("ticket").eq(
-            "account_id", mt5_account_id).eq("status", "open").execute()
+        db_trades = supabase.table("trades").select("ticket").eq("account_id", mt5_account_id).eq("status", "open").execute()
         if db_trades.data:
-            closed_count = 0
             for t in db_trades.data:
                 if t["ticket"] not in current_tickets:
-                    supabase.table("trades").update({"status": "closed"}).eq(
-                        "ticket", t["ticket"]).execute()
-                    closed_count += 1
-            if closed_count > 0:
-                print(f"  [SYNC] Marked {closed_count} trades as closed")
-    except Exception as e:
-        print(f"  [SYNC ERROR] Close check: {e}")
-
-
-def cleanup_excluded_positions():
-    """Close all open positions on excluded symbols (crypto, metals, indices)."""
-    positions = mt5.positions_get() or []
-    closed = 0
-    for pos in positions:
-        if is_excluded_symbol(pos.symbol):
-            tick = mt5.symbol_info_tick(pos.symbol)
-            if not tick:
-                continue
-            close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.POSITION_TYPE_BUY else mt5.ORDER_TYPE_BUY
-            price = tick.bid if pos.type == mt5.POSITION_TYPE_BUY else tick.ask
-            request = {
-                "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": pos.symbol,
-                "volume": pos.volume,
-                "type": close_type,
-                "price": price,
-                "position": pos.ticket,
-                "sl": 0.0,
-                "tp": 0.0,
-                "deviation": 20,
-                "magic": pos.magic,
-                "comment": "EXCLUDED_CLEANUP",
-                "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": mt5.ORDER_FILLING_IOC,
-            }
-            result = mt5.order_send(request)
-            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                print(f"  [CLEANUP] Closed {pos.symbol} ticket {pos.ticket} (excluded symbol)")
-                closed += 1
-            else:
-                error = result.comment if result else "No result"
-                print(f"  [CLEANUP FAILED] {pos.symbol}: {error}")
-    if closed > 0:
-        print(f"  [CLEANUP] Closed {closed} positions on excluded symbols")
-
+                    supabase.table("trades").update({"status": "closed"}).eq("ticket", t["ticket"]).execute()
+    except:
+        pass
 
 def get_bot_status(mt5_account_id: str) -> bool:
-    """Read bot_active from the bot_status table."""
+    """Read bot_active from the bot_status table (separate from profiles to avoid trigger issues)."""
     try:
-        result = supabase.table("bot_status").select("bot_active").eq(
-            "mt5_account_id", mt5_account_id).maybe_single().execute()
+        result = supabase.table("bot_status").select("bot_active").eq("mt5_account_id", mt5_account_id).maybe_single().execute()
         if result.data:
             return result.data.get("bot_active", False)
         return False
@@ -511,302 +802,65 @@ def get_bot_status(mt5_account_id: str) -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# BRIDGE CONTROL — Logging, Heartbeat, Commands
-# ═══════════════════════════════════════════════════════════════════════════════
-BRIDGE_START_TIME = None
-
-
-def bridge_log(level: str, message: str, mt5_account_id: str = None):
-    """Write log to DB and print to terminal."""
-    ts = datetime.now().strftime('%H:%M:%S')
-    print(f"[{level}] {message}")
-    if not mt5_account_id:
-        return
-    try:
-        supabase.table("bridge_logs").insert({
-            "mt5_account_id": mt5_account_id,
-            "level": level,
-            "message": message,
-        }).execute()
-    except Exception as e:
-        print(f"  [DB ERROR] Log write failed: {e}")
-
-
-def send_heartbeat(mt5_account_id: str, cycle_count: int, status: str = "running"):
-    """Update heartbeat in bridge_heartbeat table."""
-    try:
-        supabase.table("bridge_heartbeat").upsert({
-            "mt5_account_id": mt5_account_id,
-            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
-            "status": status,
-            "cycle_count": cycle_count,
-            "uptime_since": BRIDGE_START_TIME,
-        }, on_conflict="mt5_account_id").execute()
-    except Exception as e:
-        print(f"  [DB ERROR] Heartbeat failed: {e}")
-
-
-def check_commands(mt5_account_id: str) -> Optional[str]:
-    """Check for pending commands from the dashboard."""
-    try:
-        result = supabase.table("bridge_commands").select("*") \
-            .eq("mt5_account_id", mt5_account_id) \
-            .eq("status", "pending") \
-            .order("created_at", desc=False) \
-            .limit(1).execute()
-        if result.data:
-            cmd = result.data[0]
-            supabase.table("bridge_commands").update(
-                {"status": "executed", "executed_at": datetime.now(timezone.utc).isoformat()}
-            ).eq("id", cmd["id"]).execute()
-            return cmd["command"]
-    except Exception:
-        pass
-    return None
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SINGLE ACCOUNT RUNNER — Runs Grid EA for one account
-# ═══════════════════════════════════════════════════════════════════════════════
-def run_account(login: int, password: str, server: str):
-    """Run the Grid EA for a single MT5 account. Designed to run in its own process."""
-    global LOGIN, PASSWORD, SERVER, MT5_ACCOUNT_ID, BRIDGE_START_TIME
-
-    LOGIN = login
-    PASSWORD = password
-    SERVER = server
-
-    print(f"\n{'=' * 70}")
-    print(f"  [{login}] Starting Grid EA Engine")
-    print(f"{'=' * 70}")
-
-    # Connect to MT5
-    if not mt5.initialize(login=login, password=password, server=server):
-        print(f"[{login}] [ERROR] MT5 connection failed: {mt5.last_error()}")
-        return
-
-    account_info = mt5.account_info()
-    if not account_info:
-        print(f"[{login}] [ERROR] Failed to get account info")
-        mt5.shutdown()
-        return
-
-    print(f"[{login}] [OK] Connected | Balance: ${account_info.balance:.2f}")
-
-    MT5_ACCOUNT_ID = str(login)
-    BRIDGE_START_TIME = datetime.now(timezone.utc).isoformat()
-    engine = GridEngine()
-
-    bridge_log("INFO", "Grid EA Bridge started", MT5_ACCOUNT_ID)
-
-    cycle = 0
-    while True:
-        try:
-            cycle += 1
-            ts = datetime.now().strftime('%H:%M:%S')
-
-            # Check for commands from dashboard
-            cmd = check_commands(MT5_ACCOUNT_ID)
-            if cmd == "STOP":
-                bridge_log("WARN", "STOP command received from dashboard", MT5_ACCOUNT_ID)
-                send_heartbeat(MT5_ACCOUNT_ID, cycle, status="stopped")
-                print(f"[{login}] [BRIDGE] Stopped via dashboard command")
-                mt5.shutdown()
-                break
-            elif cmd == "RESTART":
-                bridge_log("INFO", "RESTART command received — re-initializing", MT5_ACCOUNT_ID)
-                mt5.shutdown()
-                if not mt5.initialize(login=login, password=password, server=server):
-                    bridge_log("ERROR", f"MT5 re-init failed: {mt5.last_error()}", MT5_ACCOUNT_ID)
-                    time.sleep(5)
-                    continue
-                engine = GridEngine()
-                bridge_log("INFO", "MT5 re-initialized successfully", MT5_ACCOUNT_ID)
-                BRIDGE_START_TIME = datetime.now(timezone.utc).isoformat()
-
-            # Sync data
-            sync_account_balance(MT5_ACCOUNT_ID)
-            sync_trades(MT5_ACCOUNT_ID)
-
-            # Clean up positions on excluded symbols (crypto, metals, indices)
-            cleanup_excluded_positions()
-
-            # Check bot status
-            bot_active = get_bot_status(MT5_ACCOUNT_ID)
-
-            if bot_active:
-                config = engine.fetch_config(MT5_ACCOUNT_ID)
-                allowed_symbols = engine.get_allowed_symbols()
-
-                print(f"[{login}] --- Cycle {cycle} @ {ts} | {len(allowed_symbols)} Forex pairs ---")
-                print(f"[{login}]   Config: Lot={config['lot_size']} | Step={config['grid_step']}pts | "
-                      f"Max={config['max_orders']} | Basket=${config['basket_profit']}")
-
-                for symbol in allowed_symbols:
-                    magic = generate_magic_number(MT5_ACCOUNT_ID, symbol)
-                    engine.manage_grid(symbol, config, magic)
-            else:
-                print(f"[{login}] --- Cycle {cycle} @ {ts} --- [ENGINE] Bot inactive, skipping")
-
-            send_heartbeat(MT5_ACCOUNT_ID, cycle)
-            time.sleep(10)
-
-        except KeyboardInterrupt:
-            bridge_log("INFO", "Bridge stopped by user", MT5_ACCOUNT_ID)
-            send_heartbeat(MT5_ACCOUNT_ID, cycle, status="stopped")
-            mt5.shutdown()
-            break
-
-        except Exception as e:
-            bridge_log("ERROR", f"Cycle error: {e}", MT5_ACCOUNT_ID)
-            print(f"[{login}] [FATAL] {e}")
-            time.sleep(5)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MULTI-ACCOUNT FETCH — Read all active accounts from Supabase
-# ═══════════════════════════════════════════════════════════════════════════════
-def fetch_all_accounts() -> List[Dict]:
-    """Fetch all active MT5 accounts from Supabase + fallback accounts."""
-    accounts = []
-    seen_logins = set()
-
-    # 1. From Supabase profiles table
-    try:
-        result = supabase.table("profiles").select(
-            "mt5_account_id, mt5_password, mt5_server"
-        ).eq("status", "active").not_.is_("mt5_account_id", "null").not_.is_("mt5_password", "null").execute()
-
-        for p in (result.data or []):
-            aid = p.get('mt5_account_id')
-            pwd = p.get('mt5_password')
-            srv = p.get('mt5_server', 'Exness-MT5Real')
-            if aid and pwd:
-                login = int(aid)
-                if login not in seen_logins:
-                    accounts.append({'login': login, 'password': pwd, 'server': srv})
-                    seen_logins.add(login)
-    except Exception as e:
-        print(f"[CONFIG ERROR] Failed to fetch accounts from DB: {e}")
-
-    # 2. Fallback hardcoded accounts (always available)
-    FALLBACK_ACCOUNTS = [
-        {"login": 474202217, "password": "Kikokok3@", "server": "Exness-MT5Trial15"},
-        {"login": 256711835, "password": "Kikokok3@", "server": "Exness-MT5Real35"},
-    ]
-    for acc in FALLBACK_ACCOUNTS:
-        if acc['login'] not in seen_logins:
-            accounts.append(acc)
-            seen_logins.add(acc['login'])
-
-    return accounts
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MULTI-ACCOUNT LAUNCHER — Spawn one process per account
-# ═══════════════════════════════════════════════════════════════════════════════
-def run_all_accounts():
-    """Run all active accounts sequentially (MT5 limitation: one connection at a time)."""
-    accounts = fetch_all_accounts()
-
-    if not accounts:
-        print("[ERROR] No active accounts found in database!")
-        print("  Add accounts to the profiles table with status='active'")
-        sys.exit(1)
-
-    print(f"\n{'=' * 70}")
-    print(f"  MOKABotTRADE — Sequential Multi-Account Grid EA Engine")
-    print(f"  Found {len(accounts)} active account(s)")
-    print(f"{'=' * 70}")
-
-    for acc in accounts:
-        print(f"  [{acc['login']}] Server: {acc['server']}")
-    print()
-
-    cycle = 0
-    while True:
-        try:
-            cycle += 1
-            ts = datetime.now().strftime('%H:%M:%S')
-            print(f"\n{'=' * 70}")
-            print(f"  Cycle {cycle} @ {ts} — Processing {len(accounts)} accounts sequentially")
-            print(f"{'=' * 70}")
-
-            for acc in accounts:
-                login = acc['login']
-                account_id = str(login)
-                
-                # Check bot status BEFORE connecting
-                bot_active = get_bot_status(account_id)
-                if not bot_active:
-                    print(f"\n--- [{login}] Bot inactive, skipping (no connection) ---")
-                    continue
-                
-                print(f"\n--- [{login}] Connecting to {acc['server']} ---")
-
-                # Connect to MT5
-                if not mt5.initialize(login=login, password=acc['password'], server=acc['server']):
-                    error = mt5.last_error()
-                    print(f"[{login}] [ERROR] MT5 connection failed: {error}")
-                    mt5.shutdown()
-                    continue
-
-                account_info = mt5.account_info()
-                if not account_info:
-                    print(f"[{login}] [ERROR] Failed to get account info")
-                    mt5.shutdown()
-                    continue
-
-                print(f"[{login}] [OK] Balance: ${account_info.balance:.2f} | Equity: ${account_info.equity:.2f}")
-
-                # Sync data
-                sync_account_balance(account_id)
-                sync_trades(account_id)
-                cleanup_excluded_positions()
-
-                # Trade
-                engine = GridEngine()
-                config = engine.fetch_config(account_id)
-                allowed_symbols = engine.get_allowed_symbols()
-
-                print(f"[{login}] Trading: {len(allowed_symbols)} pairs | Lot={config['lot_size']} | Basket=${config['basket_profit']}")
-
-                for symbol in allowed_symbols:
-                    try:
-                        magic = generate_magic_number(account_id, symbol)
-                        engine.manage_grid(symbol, config, magic)
-                    except Exception as e:
-                        print(f"[{login}] [ERROR] {symbol}: {e}")
-
-                send_heartbeat(account_id, cycle)
-                mt5.shutdown()
-                print(f"[{login}] Done. Disconnecting.")
-
-            print(f"\n[LAUNCHER] Cycle {cycle} complete. Waiting 30s...\n")
-            time.sleep(30)
-
-        except KeyboardInterrupt:
-            print("\n[LAUNCHER] Stopped by user (Ctrl+C)")
-            mt5.shutdown()
-            break
-        except Exception as e:
-            print(f"[LAUNCHER] Cycle error: {e}")
-            try:
-                mt5.shutdown()
-            except:
-                pass
-            time.sleep(10)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# ENTRY POINT
+# MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        # Single account mode: python mt5_bridge.py <account_id>
-        target_id = sys.argv[1]
-        creds = load_credentials(target_id)
-        run_account(creds[0], creds[1], creds[2])
-    else:
-        # Multi-account mode: python mt5_bridge.py
-        run_all_accounts()
+    print("=" * 70)
+    print("  MOKABotTRADE — Generic Strategy Framework")
+    print("  ALL trading logic is defined in Supabase JSONB")
+    print("  No hardcoded indicators or conditions")
+    print("=" * 70)
+    
+    if not mt5.initialize(login=LOGIN, password=PASSWORD, server=SERVER):
+        print(f"[ERROR] MT5 connection failed: {mt5.last_error()}")
+        sys.exit(1)
+    
+    account_info = mt5.account_info()
+    if not account_info:
+        print("[ERROR] Failed to get account info")
+        mt5.shutdown()
+        sys.exit(1)
+    
+    print(f"\n[OK] Connected to MT5")
+    print(f"     Account: {account_info.login}")
+    print(f"     Balance: ${account_info.balance:.2f}")
+    print("=" * 70)
+    
+    MT5_ACCOUNT_ID = str(account_info.login)
+    engine = StrategyEngine()
+    
+    print("\n[BRIDGE] Starting... (Ctrl+C to stop)")
+    print("[INFO] Strategies are fetched from DB every 30 seconds")
+    print("[INFO] Any DB change reflects immediately\n")
+    
+    cycle = 0
+    while True:
+        try:
+            cycle += 1
+            ts = datetime.now().strftime('%H:%M:%S')
+            
+            sync_account_balance(MT5_ACCOUNT_ID)
+            sync_trades(MT5_ACCOUNT_ID)
+            
+            bot_active = get_bot_status(MT5_ACCOUNT_ID)
+            
+            print(f"--- Cycle {cycle} @ {ts} ---")
+            print(f"[BALANCE] ${account_info.balance:.2f} | Equity: ${account_info.equity:.2f}")
+            
+            if bot_active:
+                print(f"[BOT] ▶ RUNNING")
+                engine.process_cycle(bot_active=True)
+            else:
+                print(f"[BOT] ⏸  STANDBY — Monitoring only")
+            
+            print(f"--- Next in 10s ---\n")
+            time.sleep(1)
+        
+        except KeyboardInterrupt:
+            print("\n[BRIDGE] Stopping...")
+            mt5.shutdown()
+            break
+        
+        except Exception as e:
+            print(f"[FATAL] {e}")
+            time.sleep(5)
