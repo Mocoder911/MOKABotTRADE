@@ -630,9 +630,10 @@ def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, ac
 def process_all_symbols(account_id: str, settings: Dict):
     """
     Process all allowed symbols with grid trading logic:
-    1. Check if there are ANY open positions
-    2. If yes, only check basket TP (no new positions)
-    3. If no open positions at all, start opening new ones
+    1. Check basket TP and close if target reached
+    2. For closed symbols (by basket TP), immediately re-open
+    3. For symbols with no positions, check direction and open
+    4. For symbols with positions, just monitor
     """
     basket_tp = float(settings.get('Basket_Take_Profit', 10))
     grid_step = int(settings.get('Grid_Step', 100))
@@ -658,46 +659,30 @@ def process_all_symbols(account_id: str, settings: Dict):
     
     log("INFO", f"Processing {len(allowed_symbols)} symbols", account_id)
     
-    # Check total open positions across ALL symbols
-    all_positions = mt5.positions_get()
-    total_open_positions = len(all_positions) if all_positions else 0
-    
     # Step 1: Check basket TP for all symbols
     closed_symbols = check_basket_tp_per_symbol(account_id, basket_tp)
     
-    # If there are still open positions, only monitor basket TP - don't open new ones
-    if total_open_positions > 0:
-        log("INFO", f"[WAIT] {total_open_positions} positions still open | Only monitoring basket TP | No new positions", account_id)
-        return
-    
-    # All positions closed - now open new ones
-    log("INFO", f"[READY] All positions closed | Opening new trades", account_id)
-    
-    # Step 2: Process each symbol to open first trade
+    # Step 2: Process each symbol
     for symbol in allowed_symbols:
         positions = get_symbol_positions(symbol)
         total_orders = len(positions)
         total_profit = get_symbol_open_profit(symbol)
         
-        # If this symbol was just closed by basket TP, skip (positions closing in progress)
-        if symbol in closed_symbols:
-            continue
-        
-        # Case 1: No positions - open first trade
+        # Case 1: No positions - open first trade (includes symbols just closed by basket TP)
         if total_orders == 0:
             direction = check_market_direction(symbol)
             if direction != 'NONE':
-                log("INFO", f"[OPEN] {symbol}: No positions | Direction={direction} -> OPENING", account_id)
+                if symbol in closed_symbols:
+                    log("INFO", f"[RE-OPEN] {symbol}: Basket TP hit | Direction={direction} -> OPENING", account_id)
+                else:
+                    log("INFO", f"[OPEN] {symbol}: No positions | Direction={direction} -> OPENING", account_id)
                 execute_trade(symbol, direction, lot_size, account_id)
             else:
                 log("DEBUG", f"[OPEN] {symbol}: No positions | Direction=NONE -> SKIP", account_id)
         
-        # Case 2: Has positions - check grid steps
-        elif total_orders > 0 and total_orders < max_positions:
-            log("DEBUG", f"[GRID] {symbol}: {total_orders} positions | P/L=${total_profit:.2f} | Checking grid...", account_id)
-            check_and_open_grid_steps(symbol, grid_step, lot_size, account_id, max_positions)
+        # Case 2: Has positions - just monitor (no grid since max_positions=1)
         elif total_orders >= max_positions:
-            log("DEBUG", f"[GRID] {symbol}: Max positions reached ({total_orders}/{max_positions})", account_id)
+            log("DEBUG", f"[MONITOR] {symbol}: {total_orders} position | P/L=${total_profit:.2f} | Waiting for basket TP ${basket_tp}", account_id)
 
 def close_position(pos, account_id: str):
     """Close a single position."""
