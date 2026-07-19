@@ -132,7 +132,7 @@ DEFAULT_EQUITY_SL_PCT = 0     # Equity stop loss percentage
 # ============================================
 # Forex-only mode: Only allow forex currency pairs
 # Major currency codes for forex detection
-FOREX_CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'NZD', 'CHF', 'SGD', 'HKD', 'NOK', 'SEK', 'DKK', 'PLN', 'CZK', 'HUF', 'TRY', 'ZAR', 'MXN', 'BRL', 'INR', 'CNY', 'KRW', 'THB', 'MYR', 'PHP', 'IDR', 'VND', 'RUB', 'ILS', 'CLP', 'COP', 'PEN', 'ARS']
+FOREX_CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'NZD', 'CHF']
 
 # Additional blocked symbols (indices, commodities, crypto)
 BLOCKED_SYMBOL_KEYWORDS = ['XAU', 'XAG', 'OIL', 'BTC', 'ETH', 'US30', 'NAS100', 'SPX500', 'GOLD', 'SILVER']
