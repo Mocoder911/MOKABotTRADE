@@ -142,10 +142,10 @@ def load_allowed_currencies():
         with open(pairs_file, 'r') as f:
             data = json.load(f)
             currencies = data.get('allowed_currencies', [])
-            log("INFO", f"[SECURITY] Loaded {len(currencies)} currencies from pairs.json: {currencies}", "SYSTEM")
+            print(f"[SECURITY] Loaded {len(currencies)} currencies from pairs.json: {currencies}")
             return currencies
     except Exception as e:
-        log("WARN", f"[SECURITY] Failed to load pairs.json, using hardcoded fallback: {e}", "SYSTEM")
+        print(f"[SECURITY] Failed to load pairs.json, using hardcoded fallback: {e}")
         # Fallback to hardcoded list
         return ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'NZD', 'CHF']
 
