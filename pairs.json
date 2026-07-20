@@ -1,0 +1,6 @@
+{
+  "allowed_currencies": ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "NZD", "CHF"],
+  "description": "Strict 8-currency whitelist for MOKABot trading. Only major pairs allowed.",
+  "max_pairs": 28,
+  "blocked_keywords": ["XAU", "XAG", "OIL", "BTC", "ETH", "US30", "NAS100", "SPX500", "GOLD", "SILVER"]
+}

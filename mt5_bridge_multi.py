@@ -131,8 +131,25 @@ DEFAULT_EQUITY_SL_PCT = 0     # Equity stop loss percentage
 # STRICT STRATEGY PROTOCOL
 # ============================================
 # Forex-only mode: Only allow forex currency pairs
-# Major currency codes for forex detection
-FOREX_CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'NZD', 'CHF']
+# Load allowed currencies from pairs.json (primary source)
+import json
+import os
+
+def load_allowed_currencies():
+    """Load allowed currencies from pairs.json file."""
+    pairs_file = os.path.join(os.path.dirname(__file__), 'pairs.json')
+    try:
+        with open(pairs_file, 'r') as f:
+            data = json.load(f)
+            currencies = data.get('allowed_currencies', [])
+            log("INFO", f"[SECURITY] Loaded {len(currencies)} currencies from pairs.json: {currencies}", "SYSTEM")
+            return currencies
+    except Exception as e:
+        log("WARN", f"[SECURITY] Failed to load pairs.json, using hardcoded fallback: {e}", "SYSTEM")
+        # Fallback to hardcoded list
+        return ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'NZD', 'CHF']
+
+FOREX_CURRENCIES = load_allowed_currencies()
 
 # Additional blocked symbols (indices, commodities, crypto)
 BLOCKED_SYMBOL_KEYWORDS = ['XAU', 'XAG', 'OIL', 'BTC', 'ETH', 'US30', 'NAS100', 'SPX500', 'GOLD', 'SILVER']
@@ -736,6 +753,29 @@ def execute_trade(symbol: str, order_type: str, lot_size: float, account_id: str
     Execute a trade order.
     order_type: 'BUY' or 'SELL'
     """
+    # HARD SECURITY CHECK: Verify symbol is allowed before ANY trade
+    if not is_allowed_symbol(symbol, {}):
+        log("ERROR", f"[SECURITY ALERT] Attempted to trade {symbol} which is NOT ALLOWED! Trade BLOCKED.", account_id)
+        return False
+    
+    # EMERGENCY STOP: Check equity before opening trade
+    try:
+        info = mt5.account_info()
+        if info:
+            equity = info.equity
+            balance = info.balance
+            # If equity is critically low (< $100), stop opening new trades
+            if equity < 100:
+                log("ERROR", f"[EMERGENCY STOP] Equity ${equity:.2f} is critically low (< $100). BLOCKING new trades.", account_id)
+                return False
+            # Check if floating loss is too high
+            floating_pl = equity - balance
+            if balance > 0 and floating_pl < -(balance * 0.5):  # 50% loss
+                log("ERROR", f"[EMERGENCY STOP] Floating loss ${floating_pl:.2f} exceeds 50% of balance. BLOCKING new trades.", account_id)
+                return False
+    except Exception as e:
+        log("WARN", f"Failed to check account info before trade: {e}", account_id)
+    
     try:
         tick = mt5.symbol_info_tick(symbol)
         info = mt5.symbol_info(symbol)
