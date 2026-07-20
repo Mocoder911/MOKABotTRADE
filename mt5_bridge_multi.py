@@ -123,8 +123,8 @@ def ensure_symbol_in_market_watch(symbol: str, account_id: str) -> bool:
 # These values are applied automatically unless overridden in tactics_settings table
 DEFAULT_GRID_STEP = 100          # Grid step in points
 DEFAULT_FIXED_LOT_SIZE = 0.02    # Fixed lot size - no multipliers
-DEFAULT_BASKET_TP = 50           # Basket take profit in USD
-DEFAULT_MAX_POSITIONS = 1        # Max open positions per symbol
+DEFAULT_BASKET_TP = 10           # Basket take profit in USD
+DEFAULT_MAX_POSITIONS = 5        # Max open positions per symbol
 DEFAULT_EQUITY_SL_PCT = 0        # Equity stop loss percentage
 DEFAULT_MAX_SPREAD_PIPS = 3.0    # Max allowed spread in pips
 
