@@ -125,7 +125,8 @@ DEFAULT_GRID_STEP = 100          # Grid step in points
 DEFAULT_FIXED_LOT_SIZE = 0.02    # Fixed lot size - no multipliers
 DEFAULT_BASKET_TP = 50           # Basket take profit in USD
 DEFAULT_MAX_POSITIONS = 1        # Max open positions per symbol
-DEFAULT_EQUITY_SL_PCT = 0     # Equity stop loss percentage
+DEFAULT_EQUITY_SL_PCT = 0        # Equity stop loss percentage
+DEFAULT_MAX_SPREAD_PIPS = 3.0    # Max allowed spread in pips
 
 # ============================================
 # STRICT STRATEGY PROTOCOL
@@ -192,6 +193,46 @@ def is_allowed_symbol(symbol: str, settings: Dict) -> bool:
     
     # Everything else is blocked
     return False
+
+def is_spread_safe(symbol: str, max_spread_pips: float = None, account_id: str = None) -> bool:
+    """
+    Check if the current spread is within acceptable limits.
+    Returns True if spread is safe, False if too high.
+    
+    Args:
+        symbol: Trading symbol
+        max_spread_pips: Maximum allowed spread in pips (default: DEFAULT_MAX_SPREAD_PIPS)
+        account_id: Account ID for logging
+    
+    Returns:
+        bool: True if spread is safe, False otherwise
+    """
+    if max_spread_pips is None:
+        max_spread_pips = DEFAULT_MAX_SPREAD_PIPS
+    
+    try:
+        symbol_info = mt5.symbol_info(symbol)
+        if symbol_info is None:
+            log("WARN", f"Cannot get symbol info for {symbol}, skipping spread check", account_id)
+            return True  # Allow trade if we can't check spread
+        
+        # Get current spread in points
+        spread_points = symbol_info.spread
+        
+        # Convert points to pips (1 pip = 10 points for most pairs)
+        spread_pips = spread_points / 10.0
+        
+        if spread_pips > max_spread_pips:
+            log("WARN", f"[SPREAD FILTER] {symbol}: Spread {spread_pips:.2f} pips > Max {max_spread_pips} pips - Trade BLOCKED", account_id)
+            return False
+        
+        # Log spread for monitoring (only in DEBUG mode to avoid spam)
+        log("DEBUG", f"[SPREAD] {symbol}: {spread_pips:.2f} pips (Max: {max_spread_pips})", account_id)
+        return True
+        
+    except Exception as e:
+        log("WARN", f"Spread check failed for {symbol}: {e}", account_id)
+        return True  # Allow trade if check fails
 
 def check_risk_limits(symbol: str, account_id: str, settings: Dict, current_equity: float, balance: float) -> tuple:
     """
@@ -775,6 +816,10 @@ def execute_trade(symbol: str, order_type: str, lot_size: float, account_id: str
                 return False
     except Exception as e:
         log("WARN", f"Failed to check account info before trade: {e}", account_id)
+    
+    # SPREAD FILTER: Check if spread is within acceptable limits
+    if not is_spread_safe(symbol, account_id=account_id):
+        return False
     
     try:
         tick = mt5.symbol_info_tick(symbol)
