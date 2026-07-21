@@ -738,9 +738,15 @@ def process_all_symbols(account_id: str, settings: Dict):
             else:
                 log("DEBUG", f"[OPEN] {symbol}: No positions | Direction=NONE -> SKIP", account_id)
         
-        # Case 2: Has positions - just monitor (no grid since max_positions=1)
+        # Case 2: Has positions - check grid steps and monitor
+        elif total_orders < max_positions:
+            # Check if we should add grid positions
+            check_and_open_grid_steps(symbol, grid_step, lot_size, account_id, max_positions)
+            log("DEBUG", f"[MONITOR] {symbol}: {total_orders}/{max_positions} positions | P/L=${total_profit:.2f} | Waiting for basket TP ${basket_tp}", account_id)
+        
+        # Case 3: Max positions reached - just monitor
         elif total_orders >= max_positions:
-            log("DEBUG", f"[MONITOR] {symbol}: {total_orders} position | P/L=${total_profit:.2f} | Waiting for basket TP ${basket_tp}", account_id)
+            log("DEBUG", f"[MAX POSITIONS] {symbol}: {total_orders}/{max_positions} positions | P/L=${total_profit:.2f} | No more grid", account_id)
 
 def close_position(pos, account_id: str):
     """Close a single position."""
