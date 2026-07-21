@@ -148,7 +148,7 @@ def load_allowed_currencies():
     except Exception as e:
         print(f"[SECURITY] Failed to load pairs.json, using hardcoded fallback: {e}")
         # Fallback to hardcoded list
-        return ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'NZD', 'CHF']
+        return ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF']
 
 FOREX_CURRENCIES = load_allowed_currencies()
 
