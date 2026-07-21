@@ -323,8 +323,9 @@ def debug_log_strategy(account_id: str, settings: Dict):
         'EURGBP', 'EURJPY', 'GBPJPY', 'AUDJPY', 'NZDJPY', 'CADJPY', 'CHFJPY',
         'EURAUD', 'EURCAD', 'EURNZD', 'GBPAUD', 'GBPCAD', 'GBPNZD',
         'AUDCAD', 'AUDNZD', 'AUDCHF', 'NZDCAD', 'NZDCHF', 'CADCHF',
-        # Exotic pairs (should be ALLOWED)
-        'USDMXN', 'USDZAR', 'USDTRY', 'USDSGD', 'USDHKD', 'USDNOK', 'USDSEK',
+        # Exotic pairs (should be BLOCKED)
+        'USDMXN', 'USDZAR', 'USDTRY', 'USDHKD', 'USDNOK', 'USDSEK',
+        'AUDSGD', 'EURCZK', 'EURDKK', 'USDSGD',
         # Commodities (should be BLOCKED)
         'XAUUSD', 'XAGUSD',
         # Crypto (should be BLOCKED)
