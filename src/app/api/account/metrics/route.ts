@@ -80,16 +80,16 @@ export async function GET(request: NextRequest) {
     // 1. Realized profit from trades CLOSED today
     let closedQuery = supabase
       .from("trades")
-      .select("profit, close_time, ticket, symbol")
+      .select("live_pl, closed_at, ticket, symbol")
       .eq("status", "closed")
-      .gte("close_time", todayISO);
+      .gte("closed_at", todayISO);
 
     if (profile.mt5_account_id) {
       closedQuery = closedQuery.eq("account_id", profile.mt5_account_id);
     }
 
     const { data: closedTradesToday } = await closedQuery;
-    const closedProfitToday = closedTradesToday?.reduce((sum, t) => sum + (t.profit ?? 0), 0) ?? 0;
+    const closedProfitToday = closedTradesToday?.reduce((sum, t) => sum + (t.live_pl ?? 0), 0) ?? 0;
 
     // 2. Unrealized P/L from positions OPENED today (live P/L of open trades opened since midnight)
     const openTradesToday = openTrades.filter(t => {
