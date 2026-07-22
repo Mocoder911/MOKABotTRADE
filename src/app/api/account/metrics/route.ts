@@ -102,15 +102,24 @@ export async function GET(request: NextRequest) {
     console.log("[todayNet] closed count=", closedTradesToday?.length ?? 0, "profit=", closedProfitToday);
     console.log("[todayNet] total=", todayNetProfit);
 
-    return NextResponse.json({
-      balance,
-      equity,
-      pl: totalPL,
-      margin: totalMargin,
-      positions,
-      todayNet: todayNetProfit,
-      trades: openTrades,
-    });
+    return NextResponse.json(
+      {
+        balance,
+        equity,
+        pl: totalPL,
+        margin: totalMargin,
+        positions,
+        todayNet: todayNetProfit,
+        trades: openTrades,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      }
+    );
   } catch (err) {
     console.error("[Account Metrics] Error:", err);
     return NextResponse.json({
