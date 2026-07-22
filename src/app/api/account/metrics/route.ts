@@ -91,29 +91,13 @@ export async function GET(request: NextRequest) {
     const { data: closedTradesToday } = await closedQuery;
     const closedProfitToday = closedTradesToday?.reduce((sum, t) => sum + (t.live_pl ?? 0), 0) ?? 0;
 
-    // 2. Unrealized P/L from positions OPENED today (live P/L of open trades opened since midnight)
-    const openTradesToday = openTrades.filter(t => {
-      const openTime = t.open_time || t.openTime;
-      if (!openTime) return false;
-      return new Date(openTime) >= today;
-    });
-    const openProfitToday = openTradesToday.reduce(
-      (sum, t) => sum + (t.live_pl ?? t.livePL ?? 0), 0
-    );
-
-    // Today's net = realized (closed today) + unrealized (opened today, still open)
-    const todayNetProfit = closedProfitToday + openProfitToday;
+    // Today's net = realized profit from trades closed today only
+    const todayNetProfit = closedProfitToday;
 
     // Debug: log what we counted
     console.log("[todayNet] now=", now.toISOString(), "today=", todayISO);
     console.log("[todayNet] closed count=", closedTradesToday?.length ?? 0, "profit=", closedProfitToday);
-    console.log("[todayNet] open today count=", openTradesToday.length, "profit=", openProfitToday);
     console.log("[todayNet] total=", todayNetProfit);
-    if (openTradesToday.length > 0) {
-      console.log("[todayNet] open today samples:", openTradesToday.slice(0, 5).map((t: Record<string, unknown>) => ({
-        ticket: t.ticket, symbol: t.symbol, open_time: t.open_time, live_pl: t.live_pl
-      })));
-    }
 
     return NextResponse.json({
       balance,
