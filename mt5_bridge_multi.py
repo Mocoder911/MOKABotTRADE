@@ -537,7 +537,9 @@ def sync_account_trades(user_id: str, account_id: str):
         ticket = str(pos.ticket)
         try:
             margin = getattr(pos, 'margin', 0.0) or 0.0
-            live_pl = pos.profit
+            # Include swap in live_pl to match MT5's floating P/L exactly
+            swap = getattr(pos, 'swap', 0.0) or 0.0
+            live_pl = pos.profit + swap
             
             supabase.table("trades").upsert({
                 "ticket": ticket,
@@ -555,7 +557,7 @@ def sync_account_trades(user_id: str, account_id: str):
                 "status": "open"
             }, on_conflict="ticket").execute()
             
-            log("DEBUG", f"Ticket {ticket}: {pos.symbol} | P/L: ${live_pl:.2f}", account_id)
+            log("DEBUG", f"Ticket {ticket}: {pos.symbol} | P/L: ${live_pl:.2f} (profit: ${pos.profit:.2f}, swap: ${swap:.2f})", account_id)
         except Exception as e:
             log("ERROR", f"Ticket {ticket} sync failed: {e}", account_id)
     
