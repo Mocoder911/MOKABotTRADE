@@ -164,6 +164,14 @@ export default function HomePage() {
   const [redirected, setRedirected] = useState(false);
   const [botToggling, setBotToggling] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string>("");
+  const [metrics, setMetrics] = useState({
+    balance: 0,
+    equity: 0,
+    pl: 0,
+    margin: 0,
+    positions: 0,
+    todayNet: 0,
+  });
 
   // Fetch bot_active from bot_status table
   const fetchBotStatus = useCallback(async () => {
@@ -179,12 +187,39 @@ export default function HomePage() {
     }
   }, [profile?.mt5_account_id, setBotActive]);
 
+  // Fetch account metrics
+  const fetchMetrics = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await fetch("/api/account/metrics", {
+        headers: { "x-user-id": user.id },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMetrics({
+          balance: data.balance ?? 0,
+          equity: data.equity ?? 0,
+          pl: data.pl ?? 0,
+          margin: data.margin ?? 0,
+          positions: data.positions ?? 0,
+          todayNet: data.todayNet ?? 0,
+        });
+      }
+    } catch (err) {
+      console.error("[Metrics] Fetch error:", err);
+    }
+  }, [user]);
+
   // Fetch bot status on mount and periodically
   useEffect(() => {
     fetchBotStatus();
-    const interval = setInterval(fetchBotStatus, 10000); // Poll every 10s
+    fetchMetrics();
+    const interval = setInterval(() => {
+      fetchBotStatus();
+      fetchMetrics();
+    }, 10000); // Poll every 10s
     return () => clearInterval(interval);
-  }, [fetchBotStatus]);
+  }, [fetchBotStatus, fetchMetrics]);
 
   // Bot toggle handler
   const handleBotToggle = async () => {
@@ -366,6 +401,24 @@ export default function HomePage() {
       {/* ─── Tab Content ──────────────────────────────────────────────────── */}
       {activeTab === "dashboard" ? (
         <div className="flex flex-col gap-8">
+          {/* Account Metrics Header */}
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+            <StatCard label="Balance" value={`$${formatUSD(metrics.balance)}`} accent="cyan" />
+            <StatCard label="Equity" value={`$${formatUSD(metrics.equity)}`} accent="cyan" />
+            <StatCard 
+              label="Floating P/L" 
+              value={`${metrics.pl >= 0 ? '+' : ''}$${formatUSD(metrics.pl)}`} 
+              accent={metrics.pl >= 0 ? "green" : "rose"} 
+            />
+            <StatCard label="Margin" value={`$${formatUSD(metrics.margin)}`} accent="cyan" />
+            <StatCard label="Positions" value={String(metrics.positions)} accent="cyan" />
+            <StatCard 
+              label="Today's Net" 
+              value={`${metrics.todayNet >= 0 ? '+' : ''}$${formatUSD(metrics.todayNet)}`} 
+              accent={metrics.todayNet > 0 ? "green" : metrics.todayNet < 0 ? "rose" : "white"} 
+            />
+          </div>
+
           {/* Page Header */}
           <div className="flex items-end justify-between">
             <div>

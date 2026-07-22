@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
         pl: 0,
         margin: 0,
         positions: 0,
+        todayNet: 0,
         trades: [],
       });
     }
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
     if (error) {
       console.error("[Account Metrics] Trades query error:", error.message);
       return NextResponse.json({
-        balance: 0, equity: 0, pl: 0, margin: 0, positions: 0, trades: [],
+        balance: 0, equity: 0, pl: 0, margin: 0, positions: 0, todayNet: 0, trades: [],
       });
     }
 
@@ -69,18 +70,32 @@ export async function GET(request: NextRequest) {
     const balance = accountData?.balance ?? 0;
     const equity = accountData?.equity ?? balance + totalPL;
 
+    // Calculate today's net profit (closed trades today)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const { data: closedTradesToday } = await supabase
+      .from("trades")
+      .select("profit, close_time")
+      .eq("status", "closed")
+      .gte("close_time", today.toISOString())
+      .order("close_time", { ascending: false });
+
+    const todayNetProfit = closedTradesToday?.reduce((sum, t) => sum + (t.profit ?? 0), 0) ?? 0;
+
     return NextResponse.json({
       balance,
       equity,
       pl: totalPL,
       margin: totalMargin,
       positions,
+      todayNet: todayNetProfit,
       trades: openTrades,
     });
   } catch (err) {
     console.error("[Account Metrics] Error:", err);
     return NextResponse.json({
-      balance: 0, equity: 0, pl: 0, margin: 0, positions: 0, trades: [],
+      balance: 0, equity: 0, pl: 0, margin: 0, positions: 0, todayNet: 0, trades: [],
       error: err instanceof Error ? err.message : "Unknown error",
     });
   }
