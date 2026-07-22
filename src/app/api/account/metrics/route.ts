@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Get user profile
+    // Get user profile first (needed for mt5_account_id)
     const { data: profile } = await supabase
       .from("profiles")
       .select("id, mt5_account_id, status")
@@ -33,73 +33,65 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Fetch open trades for this user
-    let tradesQuery = supabase
-      .from("trades")
-      .select("*")
-      .eq("status", "open")
-      .order("open_time", { ascending: false });
+    // Calculate Egypt midnight for today's net
+    const now = new Date();
+    const egyptNow = new Date(now.toLocaleString("en-US", { timeZone: "Africa/Cairo" }));
+    const egyptMidnight = new Date(egyptNow);
+    egyptMidnight.setHours(0, 0, 0, 0);
+    const todayISO = egyptMidnight.toISOString();
 
-    if (profile.mt5_account_id) {
-      tradesQuery = tradesQuery.eq("account_id", profile.mt5_account_id);
-    }
+    // Run all 3 queries in parallel for faster response
+    const [tradesResult, accountResult, closedResult] = await Promise.all([
+      // 1. Open trades
+      supabase
+        .from("trades")
+        .select("*")
+        .eq("status", "open")
+        .order("open_time", { ascending: false })
+        .then(({ data, error }) => error ? { data: [], error } : { data: data ?? [], error: null }),
+      // 2. Account balance
+      supabase
+        .from("account_balance")
+        .select("balance, equity")
+        .eq("user_id", userId)
+        .maybeSingle(),
+      // 3. Closed trades today
+      (() => {
+        let q = supabase
+          .from("trades")
+          .select("live_pl, closed_at, ticket, symbol")
+          .eq("status", "closed")
+          .gte("closed_at", todayISO);
+        if (profile.mt5_account_id) {
+          q = q.eq("account_id", profile.mt5_account_id);
+        }
+        return q;
+      })()
+    ]);
 
-    const { data: trades, error } = await tradesQuery;
-
+    const { data: trades, error } = tradesResult;
     if (error) {
       console.error("[Account Metrics] Trades query error:", error.message);
-      return NextResponse.json({
-        balance: 0, equity: 0, pl: 0, margin: 0, positions: 0, todayNet: 0, trades: [],
-      });
     }
-
     const openTrades = trades ?? [];
 
-    // Calculate real metrics from trades
+    // Calculate metrics from trades
     const totalPL = openTrades.reduce((sum, t) => sum + (t.live_pl ?? t.livePL ?? 0), 0);
     const totalMargin = openTrades.reduce((sum, t) => sum + (t.margin ?? t.volume ?? 0), 0);
     const positions = openTrades.length;
 
-    // Balance and equity from account table if available, otherwise derive
-    const { data: accountData } = await supabase
-      .from("account_balance")
-      .select("balance, equity")
-      .eq("user_id", userId)
-      .maybeSingle();
-
+    // Balance and equity
+    const { data: accountData } = accountResult;
     const balance = accountData?.balance ?? 0;
     const equity = accountData?.equity ?? balance + totalPL;
 
-    // Calculate today's net profit: closed trades since midnight LOCAL time (Egypt, UTC+2)
-    // Resets automatically at 00:00 Egypt time each day
-    const now = new Date();
-    // Get midnight in Egypt timezone (Africa/Cairo = UTC+2)
-    const egyptNow = new Date(now.toLocaleString("en-US", { timeZone: "Africa/Cairo" }));
-    const egyptMidnight = new Date(egyptNow);
-    egyptMidnight.setHours(0, 0, 0, 0);
-    // Convert Egypt midnight back to UTC ISO string for DB query
-    const todayISO = egyptMidnight.toISOString();
-
-    // 1. Realized profit from trades CLOSED today
-    let closedQuery = supabase
-      .from("trades")
-      .select("live_pl, closed_at, ticket, symbol")
-      .eq("status", "closed")
-      .gte("closed_at", todayISO);
-
-    if (profile.mt5_account_id) {
-      closedQuery = closedQuery.eq("account_id", profile.mt5_account_id);
-    }
-
-    const { data: closedTradesToday } = await closedQuery;
-    const closedProfitToday = closedTradesToday?.reduce((sum, t) => sum + (t.live_pl ?? 0), 0) ?? 0;
-
-    // Today's net = realized profit from trades closed today only
-    const todayNetProfit = closedProfitToday;
+    // Today's net from closed trades
+    const { data: closedTradesToday } = closedResult;
+    const todayNetProfit = closedTradesToday?.reduce((sum, t) => sum + (t.live_pl ?? 0), 0) ?? 0;
 
     // Debug: log what we counted
     console.log("[todayNet] now=", now.toISOString(), "today=", todayISO);
-    console.log("[todayNet] closed count=", closedTradesToday?.length ?? 0, "profit=", closedProfitToday);
+    console.log("[todayNet] closed count=", closedTradesToday?.length ?? 0, "profit=", todayNetProfit);
     console.log("[todayNet] total=", todayNetProfit);
 
     return NextResponse.json(
