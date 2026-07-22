@@ -70,10 +70,11 @@ export async function GET(request: NextRequest) {
     const balance = accountData?.balance ?? 0;
     const equity = accountData?.equity ?? balance + totalPL;
 
-    // Calculate today's net profit (closed trades today)
+    // Calculate today's net profit (closed + open trades from today)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
+    // 1. Closed trades from today
     const { data: closedTradesToday } = await supabase
       .from("trades")
       .select("profit, close_time")
@@ -81,7 +82,20 @@ export async function GET(request: NextRequest) {
       .gte("close_time", today.toISOString())
       .order("close_time", { ascending: false });
 
-    const todayNetProfit = closedTradesToday?.reduce((sum, t) => sum + (t.profit ?? 0), 0) ?? 0;
+    const closedProfitToday = closedTradesToday?.reduce((sum, t) => sum + (t.profit ?? 0), 0) ?? 0;
+
+    // 2. Open trades from today (their live P/L)
+    const openTradesToday = openTrades.filter(t => {
+      const openTime = t.open_time || t.openTime;
+      if (!openTime) return false;
+      const tradeDate = new Date(openTime);
+      return tradeDate >= today;
+    });
+
+    const openProfitToday = openTradesToday.reduce((sum, t) => sum + (t.live_pl ?? t.livePL ?? 0), 0);
+
+    // Total today's net = closed profit + open profit from today
+    const todayNetProfit = closedProfitToday + openProfitToday;
 
     return NextResponse.json({
       balance,
