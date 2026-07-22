@@ -334,10 +334,6 @@ export default function HomePage() {
   }
 
   // ─── Computed stats ───────────────────────────────────────────────────────
-  const totalTrades = trades.length;
-  const wins = trades.filter((t) => t.livePL > 0).length;
-  const losses = trades.filter((t) => t.livePL < 0).length;
-  const winRate = totalTrades > 0 ? ((wins / totalTrades) * 100).toFixed(1) : "0.0";
   const totalPL = trades.reduce((sum, t) => sum + t.livePL, 0);
 
   return (
@@ -491,19 +487,6 @@ export default function HomePage() {
                 {loading ? "Loading..." : "Refresh"}
               </button>
             </div>
-          </div>
-
-          {/* 5 Statistics Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <StatCard label="Total Trades" value={String(totalTrades)} accent="cyan" />
-            <StatCard label="Wins" value={String(wins)} accent="green" />
-            <StatCard label="Losses" value={String(losses)} accent="rose" />
-            <StatCard label="Win Rate" value={`${winRate}%`} accent="cyan" />
-            <StatCard
-              label="Total P/L"
-              value={`$${formatUSD(totalPL)}`}
-              accent={totalPL >= 0 ? "green" : "rose"}
-            />
           </div>
 
           {/* Error State */}

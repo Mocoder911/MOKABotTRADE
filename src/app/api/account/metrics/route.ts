@@ -70,23 +70,38 @@ export async function GET(request: NextRequest) {
     const balance = accountData?.balance ?? 0;
     const equity = accountData?.equity ?? balance + totalPL;
 
-    // Calculate today's net profit (closed + open trades from today)
+    // Calculate today's net profit: trades opened OR closed today (since midnight UTC)
+    // Resets automatically at 00:00 UTC each day
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    // 1. Closed trades from today
-    const { data: closedTradesToday } = await supabase
-      .from("trades")
-      .select("profit, close_time")
-      .eq("status", "closed")
-      .gte("close_time", today.toISOString())
-      .order("close_time", { ascending: false });
+    today.setUTCHours(0, 0, 0, 0);
+    const todayISO = today.toISOString();
 
+    // 1. Realized profit from trades CLOSED today
+    let closedQuery = supabase
+      .from("trades")
+      .select("profit")
+      .eq("status", "closed")
+      .gte("close_time", todayISO);
+
+    if (profile.mt5_account_id) {
+      closedQuery = closedQuery.eq("account_id", profile.mt5_account_id);
+    }
+
+    const { data: closedTradesToday } = await closedQuery;
     const closedProfitToday = closedTradesToday?.reduce((sum, t) => sum + (t.profit ?? 0), 0) ?? 0;
 
-    // Today's net = closed trades profit today + ALL open trades live P/L
-    // (open positions contribute to today's P&L regardless of when they were opened)
-    const todayNetProfit = closedProfitToday + totalPL;
+    // 2. Unrealized P/L from positions OPENED today (live P/L of open trades opened since midnight)
+    const openTradesToday = openTrades.filter(t => {
+      const openTime = t.open_time || t.openTime;
+      if (!openTime) return false;
+      return new Date(openTime) >= today;
+    });
+    const openProfitToday = openTradesToday.reduce(
+      (sum, t) => sum + (t.live_pl ?? t.livePL ?? 0), 0
+    );
+
+    // Today's net = realized (closed today) + unrealized (opened today, still open)
+    const todayNetProfit = closedProfitToday + openProfitToday;
 
     return NextResponse.json({
       balance,
