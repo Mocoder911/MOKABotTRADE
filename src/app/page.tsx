@@ -397,24 +397,6 @@ export default function HomePage() {
       {/* ─── Tab Content ──────────────────────────────────────────────────── */}
       {activeTab === "dashboard" ? (
         <div className="flex flex-col gap-8">
-          {/* Account Metrics Header */}
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-            <StatCard label="Balance" value={`$${formatUSD(metrics.balance)}`} accent="cyan" />
-            <StatCard label="Equity" value={`$${formatUSD(metrics.equity)}`} accent="cyan" />
-            <StatCard 
-              label="Floating P/L" 
-              value={`${metrics.pl >= 0 ? '+' : ''}$${formatUSD(metrics.pl)}`} 
-              accent={metrics.pl >= 0 ? "green" : "rose"} 
-            />
-            <StatCard label="Margin" value={`$${formatUSD(metrics.margin)}`} accent="cyan" />
-            <StatCard label="Positions" value={String(metrics.positions)} accent="cyan" />
-            <StatCard 
-              label="Today's Net" 
-              value={`${metrics.todayNet >= 0 ? '+' : ''}$${formatUSD(metrics.todayNet)}`} 
-              accent={metrics.todayNet > 0 ? "green" : metrics.todayNet < 0 ? "rose" : "white"} 
-            />
-          </div>
-
           {/* Page Header */}
           <div className="flex items-end justify-between">
             <div>

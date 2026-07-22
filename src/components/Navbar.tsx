@@ -12,6 +12,7 @@ interface AccountMetrics {
   pl: number;
   margin: number;
   positions: number;
+  todayNet: number;
 }
 
 interface MetricCardProps {
@@ -106,10 +107,11 @@ export default function Navbar() {
         pl: data.pl,
         margin: data.margin,
         positions: data.positions,
+        todayNet: data.todayNet ?? 0,
       });
     } catch (err) {
       console.error("Failed to fetch metrics:", err);
-      setMetrics({ balance: 0, equity: 0, pl: 0, margin: 0, positions: 0 });
+      setMetrics({ balance: 0, equity: 0, pl: 0, margin: 0, positions: 0, todayNet: 0 });
     } finally {
       setMetricsLoading(false);
     }
@@ -170,6 +172,11 @@ export default function Navbar() {
             label="Positions"
             value={metrics ? String(metrics.positions) : loadingValue}
             accent="cyan"
+          />
+          <MetricCard
+            label="Today's Net"
+            value={metrics ? formatPL(metrics.todayNet) : loadingValue}
+            accent={metricsLoading ? "white" : (metrics?.todayNet ?? 0) > 0 ? "green" : (metrics?.todayNet ?? 0) < 0 ? "red" : "white"}
           />
         </div>
 
@@ -284,6 +291,11 @@ export default function Navbar() {
           label="Pos"
           value={metrics ? String(metrics.positions) : loadingValue}
           accent="cyan"
+        />
+        <MetricCard
+          label="Today"
+          value={metrics ? formatPL(metrics.todayNet) : loadingValue}
+          accent={metricsLoading ? "white" : (metrics?.todayNet ?? 0) > 0 ? "green" : (metrics?.todayNet ?? 0) < 0 ? "red" : "white"}
         />
       </div>
     </nav>

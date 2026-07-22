@@ -72,14 +72,15 @@ export async function GET(request: NextRequest) {
 
     // Calculate today's net profit: trades opened OR closed today (since midnight UTC)
     // Resets automatically at 00:00 UTC each day
-    const today = new Date();
+    const now = new Date();
+    const today = new Date(now);
     today.setUTCHours(0, 0, 0, 0);
     const todayISO = today.toISOString();
 
     // 1. Realized profit from trades CLOSED today
     let closedQuery = supabase
       .from("trades")
-      .select("profit")
+      .select("profit, close_time, ticket, symbol")
       .eq("status", "closed")
       .gte("close_time", todayISO);
 
@@ -102,6 +103,17 @@ export async function GET(request: NextRequest) {
 
     // Today's net = realized (closed today) + unrealized (opened today, still open)
     const todayNetProfit = closedProfitToday + openProfitToday;
+
+    // Debug: log what we counted
+    console.log("[todayNet] now=", now.toISOString(), "today=", todayISO);
+    console.log("[todayNet] closed count=", closedTradesToday?.length ?? 0, "profit=", closedProfitToday);
+    console.log("[todayNet] open today count=", openTradesToday.length, "profit=", openProfitToday);
+    console.log("[todayNet] total=", todayNetProfit);
+    if (openTradesToday.length > 0) {
+      console.log("[todayNet] open today samples:", openTradesToday.slice(0, 5).map((t: Record<string, unknown>) => ({
+        ticket: t.ticket, symbol: t.symbol, open_time: t.open_time, live_pl: t.live_pl
+      })));
+    }
 
     return NextResponse.json({
       balance,
