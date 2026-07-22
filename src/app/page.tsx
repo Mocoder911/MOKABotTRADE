@@ -364,24 +364,7 @@ export default function HomePage() {
             Bridge
           </TabButton>
         )}
-        {/* User Management - Admin only */}
-        {isAdmin && (
-          <TabButton
-            active={activeTab === "admin"}
-            onClick={() => setActiveTab("admin")}
-            glowClass="text-amber-400"
-          >
-            User Management
-          </TabButton>
-        )}
-        {/* Account Settings */}
-        <TabButton
-          active={activeTab === "account"}
-          onClick={() => setActiveTab("account")}
-          glowClass="text-pink-400"
-        >
-          Account
-        </TabButton>
+        {/* Account Settings - Hidden */}
         {/* Profit Calculator - Admin only */}
         {isAdmin && (
           <TabButton
