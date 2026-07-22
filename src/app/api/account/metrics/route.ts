@@ -70,12 +70,15 @@ export async function GET(request: NextRequest) {
     const balance = accountData?.balance ?? 0;
     const equity = accountData?.equity ?? balance + totalPL;
 
-    // Calculate today's net profit: trades opened OR closed today (since midnight UTC)
-    // Resets automatically at 00:00 UTC each day
+    // Calculate today's net profit: closed trades since midnight LOCAL time (Egypt, UTC+2)
+    // Resets automatically at 00:00 Egypt time each day
     const now = new Date();
-    const today = new Date(now);
-    today.setUTCHours(0, 0, 0, 0);
-    const todayISO = today.toISOString();
+    // Get midnight in Egypt timezone (Africa/Cairo = UTC+2)
+    const egyptNow = new Date(now.toLocaleString("en-US", { timeZone: "Africa/Cairo" }));
+    const egyptMidnight = new Date(egyptNow);
+    egyptMidnight.setHours(0, 0, 0, 0);
+    // Convert Egypt midnight back to UTC ISO string for DB query
+    const todayISO = egyptMidnight.toISOString();
 
     // 1. Realized profit from trades CLOSED today
     let closedQuery = supabase
