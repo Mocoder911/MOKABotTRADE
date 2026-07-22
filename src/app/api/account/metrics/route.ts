@@ -80,10 +80,11 @@ export async function GET(request: NextRequest) {
     const totalMargin = openTrades.reduce((sum, t) => sum + (t.margin ?? t.volume ?? 0), 0);
     const positions = openTrades.length;
 
-    // Balance and equity
+    // Balance from account_balance table (synced by MT5 bridge)
     const { data: accountData } = accountResult;
     const balance = accountData?.balance ?? 0;
-    const equity = accountData?.equity ?? balance + totalPL;
+    // Calculate equity dynamically: balance + floating P/L (always in sync with live trades)
+    const equity = balance + totalPL;
 
     // Today's net from closed trades
     const { data: closedTradesToday } = closedResult;
