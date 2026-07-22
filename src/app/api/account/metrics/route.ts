@@ -84,18 +84,9 @@ export async function GET(request: NextRequest) {
 
     const closedProfitToday = closedTradesToday?.reduce((sum, t) => sum + (t.profit ?? 0), 0) ?? 0;
 
-    // 2. Open trades from today (their live P/L)
-    const openTradesToday = openTrades.filter(t => {
-      const openTime = t.open_time || t.openTime;
-      if (!openTime) return false;
-      const tradeDate = new Date(openTime);
-      return tradeDate >= today;
-    });
-
-    const openProfitToday = openTradesToday.reduce((sum, t) => sum + (t.live_pl ?? t.livePL ?? 0), 0);
-
-    // Total today's net = closed profit + open profit from today
-    const todayNetProfit = closedProfitToday + openProfitToday;
+    // Today's net = closed trades profit today + ALL open trades live P/L
+    // (open positions contribute to today's P&L regardless of when they were opened)
+    const todayNetProfit = closedProfitToday + totalPL;
 
     return NextResponse.json({
       balance,
