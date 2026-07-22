@@ -121,12 +121,13 @@ def ensure_symbol_in_market_watch(symbol: str, account_id: str) -> bool:
 # GLOBAL DEFAULT SETTINGS (Hard-coded)
 # ============================================
 # These values are applied automatically unless overridden in tactics_settings table
-DEFAULT_GRID_STEP = 100          # Grid step in points
+DEFAULT_GRID_STEP = 100          # Grid step in points (LEGACY - not used anymore)
 DEFAULT_FIXED_LOT_SIZE = 0.02    # Fixed lot size - no multipliers
 DEFAULT_BASKET_TP = 10           # Basket take profit in USD
 DEFAULT_MAX_POSITIONS = 5        # Max open positions per symbol
 DEFAULT_EQUITY_SL_PCT = 0        # Equity stop loss percentage
 DEFAULT_MAX_SPREAD_PIPS = 3.0    # Max allowed spread in pips
+DEFAULT_GRID_STEP_LOSS_USD = 10.0  # Grid step based on dollar loss per position
 
 # ============================================
 # STRICT STRATEGY PROTOCOL
@@ -643,48 +644,75 @@ def check_market_direction(symbol: str) -> str:
     
     return 'NONE'
 
-def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, account_id: str, max_positions: int):
+def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, account_id: str, max_positions: int, step_loss_usd: float = None):
     """
-    Check if price moved against us by step_points and open new grid position.
+    Check if the last position has reached the loss threshold and open new grid position.
+    Uses MONEY-BASED grid step (dollar loss) instead of points to avoid digit confusion.
+    
+    Args:
+        symbol: Trading symbol
+        step_points: Legacy parameter (not used anymore)
+        lot_size: Lot size for new position
+        account_id: Account ID for logging
+        max_positions: Maximum positions per symbol
+        step_loss_usd: Dollar loss threshold to trigger next grid level (default: DEFAULT_GRID_STEP_LOSS_USD)
     """
+    if step_loss_usd is None:
+        step_loss_usd = DEFAULT_GRID_STEP_LOSS_USD
+    
     positions = get_symbol_positions(symbol)
     if not positions or len(positions) >= max_positions:
         return
     
-    # Get last position price
-    last_price = get_last_position_price(symbol)
-    if last_price is None:
-        return
+    # Get the most recent position
+    last_pos = max(positions, key=lambda p: p.time)
     
-    # Get current price
+    # Calculate floating P/L for this position
+    # We need to get the current price and calculate profit
     tick = mt5.symbol_info_tick(symbol)
     if not tick:
         return
     
-    current_price = (tick.ask + tick.bid) / 2
-    
-    # Get point value
-    info = mt5.symbol_info(symbol)
-    if not info:
-        return
-    point = info.point
-    step_distance = step_points * point
-    
-    # Check if price moved against us
-    # For BUY positions: price went down
-    # For SELL positions: price went up
-    last_pos = max(positions, key=lambda p: p.time)
-    
-    if last_pos.type == mt5.POSITION_TYPE_BUY:
-        # Price went down - add grid BUY
-        if current_price <= last_price - step_distance:
-            log("INFO", f"[GRID] {symbol}: Price {current_price:.5f} <= Last {last_price:.5f} - {step_points}pts -> OPEN BUY", account_id)
-            execute_trade(symbol, "BUY", lot_size, account_id)
-    else:
-        # Price went up - add grid SELL
-        if current_price >= last_price + step_distance:
-            log("INFO", f"[GRID] {symbol}: Price {current_price:.5f} >= Last {last_price:.5f} + {step_points}pts -> OPEN SELL", account_id)
-            execute_trade(symbol, "SELL", lot_size, account_id)
+    # Get position details
+    try:
+        # Calculate current profit/loss for this position
+        current_price = tick.bid if last_pos.type == mt5.POSITION_TYPE_BUY else tick.ask
+        open_price = last_pos.price_open
+        volume = last_pos.volume
+        
+        # Get symbol info for calculation
+        info = mt5.symbol_info(symbol)
+        if not info:
+            return
+        
+        # Calculate profit in USD
+        # For BUY: profit = (current_price - open_price) * volume * contract_size * point_value
+        # For SELL: profit = (open_price - current_price) * volume * contract_size * point_value
+        contract_size = info.trade_contract_size  # Usually 100000 for forex
+        point = info.point
+        
+        if last_pos.type == mt5.POSITION_TYPE_BUY:
+            price_diff = current_price - open_price
+        else:
+            price_diff = open_price - current_price
+        
+        # Calculate profit in account currency (assuming USD)
+        profit_usd = price_diff / point * volume * contract_size * point
+        
+        # Check if loss reached threshold
+        if profit_usd <= -step_loss_usd:
+            log("INFO", f"[GRID] {symbol}: Last position P/L ${profit_usd:.2f} <= -${step_loss_usd} -> OPENING GRID LEVEL {len(positions)+1}/{max_positions}", account_id)
+            
+            # Open new position in same direction
+            if last_pos.type == mt5.POSITION_TYPE_BUY:
+                execute_trade(symbol, "BUY", lot_size, account_id)
+            else:
+                execute_trade(symbol, "SELL", lot_size, account_id)
+        else:
+            log("DEBUG", f"[GRID] {symbol}: Last position P/L ${profit_usd:.2f} (threshold: -${step_loss_usd})", account_id)
+            
+    except Exception as e:
+        log("WARN", f"Grid step calculation failed for {symbol}: {e}", account_id)
 
 def process_all_symbols(account_id: str, settings: Dict):
     """
