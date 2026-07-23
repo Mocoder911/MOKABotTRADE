@@ -722,12 +722,13 @@ def process_all_symbols(account_id: str, settings: Dict):
     1. Check basket TP and close if target reached
     2. For closed symbols (by basket TP), immediately re-open
     3. For symbols with no positions, check direction and open
-    4. For symbols with positions, just monitor
+    4. Max 20 total positions across all symbols
     """
     basket_tp = float(settings.get('Basket_Take_Profit', 10))
     grid_step = int(settings.get('Grid_Step', 100))
     max_positions = int(settings.get('Max_Open_Positions', 1))
     lot_size = get_fixed_lot_size(settings)
+    MAX_TOTAL_POSITIONS = 20  # Hard limit: max 20 positions across all symbols
     
     # Get all available symbols from MT5
     all_symbols = mt5.symbols_get()
@@ -746,13 +747,26 @@ def process_all_symbols(account_id: str, settings: Dict):
                     log("DEBUG", f"[MARKET WATCH] Added: {sym.name}", account_id)
             allowed_symbols.append(sym.name)
     
-    log("INFO", f"Processing {len(allowed_symbols)} symbols", account_id)
+    # Get current total positions count
+    all_positions = mt5.positions_get() or []
+    total_open = len(all_positions)
+    
+    log("INFO", f"Processing {len(allowed_symbols)} symbols | Total positions: {total_open}/{MAX_TOTAL_POSITIONS}", account_id)
     
     # Step 1: Check basket TP for all symbols
     closed_symbols = check_basket_tp_per_symbol(account_id, basket_tp)
     
+    # Refresh total count after basket TP closes
+    all_positions = mt5.positions_get() or []
+    total_open = len(all_positions)
+    
     # Step 2: Process each symbol
     for symbol in allowed_symbols:
+        # Check global limit before any new trade
+        if total_open >= MAX_TOTAL_POSITIONS:
+            log("DEBUG", f"[MAX TOTAL] {symbol}: Total positions {total_open}/{MAX_TOTAL_POSITIONS} - NO new trades", account_id)
+            break
+        
         positions = get_symbol_positions(symbol)
         total_orders = len(positions)
         total_profit = get_symbol_open_profit(symbol)
@@ -762,10 +776,12 @@ def process_all_symbols(account_id: str, settings: Dict):
             direction = check_market_direction(symbol)
             if direction != 'NONE':
                 if symbol in closed_symbols:
-                    log("INFO", f"[RE-OPEN] {symbol}: Basket TP hit | Direction={direction} -> OPENING", account_id)
+                    log("INFO", f"[RE-OPEN] {symbol}: Basket TP hit | Direction={direction} -> OPENING ({total_open+1}/{MAX_TOTAL_POSITIONS})", account_id)
                 else:
-                    log("INFO", f"[OPEN] {symbol}: No positions | Direction={direction} -> OPENING", account_id)
-                execute_trade(symbol, direction, lot_size, account_id)
+                    log("INFO", f"[OPEN] {symbol}: No positions | Direction={direction} -> OPENING ({total_open+1}/{MAX_TOTAL_POSITIONS})", account_id)
+                result = execute_trade(symbol, direction, lot_size, account_id)
+                if result:
+                    total_open += 1
             else:
                 log("DEBUG", f"[OPEN] {symbol}: No positions | Direction=NONE -> SKIP", account_id)
         
