@@ -760,17 +760,34 @@ def process_all_symbols(account_id: str, settings: Dict):
     all_positions = mt5.positions_get() or []
     total_open = len(all_positions)
     
-    # Step 2: Process each symbol (MONITORING ONLY - no new trades)
+    # Step 2: Process each symbol
     for symbol in allowed_symbols:
+        # Check global limit before any new trade
+        if total_open >= MAX_TOTAL_POSITIONS:
+            log("DEBUG", f"[MAX TOTAL] {symbol}: Total positions {total_open}/{MAX_TOTAL_POSITIONS} - NO new trades", account_id)
+            break
+        
         positions = get_symbol_positions(symbol)
         total_orders = len(positions)
         total_profit = get_symbol_open_profit(symbol)
         
-        # Just monitor - no new trades
-        if total_orders > 0:
+        # Case 1: No positions - open first trade (includes symbols just closed by basket TP)
+        if total_orders == 0:
+            direction = check_market_direction(symbol)
+            if direction != 'NONE':
+                if symbol in closed_symbols:
+                    log("INFO", f"[RE-OPEN] {symbol}: Basket TP hit | Direction={direction} -> OPENING ({total_open+1}/{MAX_TOTAL_POSITIONS})", account_id)
+                else:
+                    log("INFO", f"[OPEN] {symbol}: No positions | Direction={direction} -> OPENING ({total_open+1}/{MAX_TOTAL_POSITIONS})", account_id)
+                result = execute_trade(symbol, direction, lot_size, account_id)
+                if result:
+                    total_open += 1
+            else:
+                log("DEBUG", f"[SKIP] {symbol}: No positions | Direction=NONE -> SKIP", account_id)
+        
+        # Case 2: Has positions - just monitor
+        elif total_orders >= 1:
             log("DEBUG", f"[MONITOR] {symbol}: {total_orders} position | P/L=${total_profit:.2f} | Waiting for basket TP ${basket_tp}", account_id)
-        else:
-            log("DEBUG", f"[CLOSED] {symbol}: No positions - NOT re-opening", account_id)
 
 def close_position(pos, account_id: str):
     """Close a single position."""
