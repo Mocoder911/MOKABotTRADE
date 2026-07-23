@@ -55,7 +55,7 @@ export default function BridgeConsole() {
   const [sendingCmd, setSendingCmd] = useState<string | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  const mt5Id = profile?.mt5_account_id || "260904217";
+  const mt5Id = profile?.mt5_account_id || "84128321";
 
   // Fetch logs
   const fetchLogs = useCallback(async () => {
