@@ -36,7 +36,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # CONNECTION TIMEOUT & FAILURE TRACKING
 # ============================================
 CONNECTION_TIMEOUT_SECONDS = 10  # Max time to wait for MT5 connection (increased for slow brokers)
-FAILURE_COOLDOWN_MINUTES = 5     # Skip failed accounts for this long (reduced for faster recovery)
+FAILURE_COOLDOWN_MINUTES = 0.5   # Skip failed accounts for this long (30 seconds for faster recovery)
 MAX_CONSECUTIVE_FAILURES = 3     # Flag as failed after this many consecutive failures
 
 # Track account failures: {account_id: {"failures": int, "last_failure": datetime}}
