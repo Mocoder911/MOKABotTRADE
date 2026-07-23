@@ -846,24 +846,6 @@ def execute_trade(symbol: str, order_type: str, lot_size: float, account_id: str
         log("ERROR", f"[SECURITY ALERT] Attempted to trade {symbol} which is NOT ALLOWED! Trade BLOCKED.", account_id)
         return False
     
-    # EMERGENCY STOP: Check equity before opening trade
-    try:
-        info = mt5.account_info()
-        if info:
-            equity = info.equity
-            balance = info.balance
-            # If equity is critically low (< $100), stop opening new trades
-            if equity < 100:
-                log("ERROR", f"[EMERGENCY STOP] Equity ${equity:.2f} is critically low (< $100). BLOCKING new trades.", account_id)
-                return False
-            # Check if floating loss is too high
-            floating_pl = equity - balance
-            if balance > 0 and floating_pl < -(balance * 0.5):  # 50% loss
-                log("ERROR", f"[EMERGENCY STOP] Floating loss ${floating_pl:.2f} exceeds 50% of balance. BLOCKING new trades.", account_id)
-                return False
-    except Exception as e:
-        log("WARN", f"Failed to check account info before trade: {e}", account_id)
-    
     # SPREAD FILTER: Check if spread is within acceptable limits
     if not is_spread_safe(symbol, account_id=account_id):
         return False
