@@ -354,27 +354,23 @@ export default function HomePage() {
         >
           Live
         </TabButton>
-        {/* Bridge Console - Admin only */}
-        {isAdmin && (
-          <TabButton
-            active={activeTab === "bridge"}
-            onClick={() => setActiveTab("bridge")}
-            glowClass="text-sky-400"
-          >
-            Bridge
-          </TabButton>
-        )}
+        {/* Bridge Console - All users */}
+        <TabButton
+          active={activeTab === "bridge"}
+          onClick={() => setActiveTab("bridge")}
+          glowClass="text-sky-400"
+        >
+          Bridge
+        </TabButton>
         {/* Account Settings - Hidden */}
-        {/* Profit Calculator - Admin only */}
-        {isAdmin && (
-          <TabButton
-            active={activeTab === "profit-calculator"}
-            onClick={() => setActiveTab("profit-calculator")}
-            glowClass="text-emerald-400 glow-green"
-          >
-            Profit Calculator
-          </TabButton>
-        )}
+        {/* Profit Calculator - All users */}
+        <TabButton
+          active={activeTab === "profit-calculator"}
+          onClick={() => setActiveTab("profit-calculator")}
+          glowClass="text-emerald-400 glow-green"
+        >
+          Profit Calculator
+        </TabButton>
       </div>
 
       {/* ─── Tab Content ──────────────────────────────────────────────────── */}
