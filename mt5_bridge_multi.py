@@ -728,7 +728,7 @@ def process_all_symbols(account_id: str, settings: Dict):
     grid_step = int(settings.get('Grid_Step', 100))
     max_positions = int(settings.get('Max_Open_Positions', DEFAULT_MAX_POSITIONS))
     lot_size = get_fixed_lot_size(settings)
-    MAX_TOTAL_POSITIONS = 50  # Hard limit: max 50 positions across all symbols
+    MAX_TOTAL_POSITIONS = 20  # Hard limit: max 20 positions across all symbols
     
     # Get all available symbols from MT5
     all_symbols = mt5.symbols_get()
