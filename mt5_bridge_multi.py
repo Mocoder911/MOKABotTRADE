@@ -726,7 +726,7 @@ def process_all_symbols(account_id: str, settings: Dict):
     """
     basket_tp = float(settings.get('Basket_Take_Profit', 10))
     grid_step = int(settings.get('Grid_Step', 100))
-    max_positions = int(settings.get('Max_Open_Positions', 1))
+    max_positions = int(settings.get('Max_Open_Positions', DEFAULT_MAX_POSITIONS))
     lot_size = get_fixed_lot_size(settings)
     MAX_TOTAL_POSITIONS = 20  # Hard limit: max 20 positions across all symbols
     
@@ -785,9 +785,17 @@ def process_all_symbols(account_id: str, settings: Dict):
             else:
                 log("DEBUG", f"[SKIP] {symbol}: No positions | Direction=NONE -> SKIP", account_id)
         
-        # Case 2: Has positions - just monitor
+        # Case 2: Has positions - check grid step and monitor
         elif total_orders >= 1:
-            log("DEBUG", f"[MONITOR] {symbol}: {total_orders} position | P/L=${total_profit:.2f} | Waiting for basket TP ${basket_tp}", account_id)
+            # Check if we should open a grid level (every $10 loss)
+            if total_orders < max_positions:
+                check_and_open_grid_steps(symbol, grid_step, lot_size, account_id, max_positions)
+                # Refresh position count after potential grid open
+                positions = get_symbol_positions(symbol)
+                total_orders = len(positions)
+                total_profit = get_symbol_open_profit(symbol)
+            
+            log("DEBUG", f"[MONITOR] {symbol}: {total_orders}/{max_positions} positions | P/L=${total_profit:.2f} | Waiting for basket TP ${basket_tp}", account_id)
 
 def close_position(pos, account_id: str):
     """Close a single position."""
