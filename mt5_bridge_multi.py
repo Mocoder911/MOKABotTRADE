@@ -122,9 +122,9 @@ def ensure_symbol_in_market_watch(symbol: str, account_id: str) -> bool:
 # ============================================
 # These values are applied automatically unless overridden in tactics_settings table
 DEFAULT_GRID_STEP = 100          # Grid step in points (LEGACY - not used anymore)
-DEFAULT_FIXED_LOT_SIZE = 0.01    # Fixed lot size - no multipliers
+DEFAULT_FIXED_LOT_SIZE = 0.02    # Fixed lot size - no multipliers
 DEFAULT_BASKET_TP = 10           # Basket take profit in USD
-DEFAULT_MAX_POSITIONS = 5        # Max open positions per symbol
+DEFAULT_MAX_POSITIONS = 20        # Max open positions per symbol
 DEFAULT_EQUITY_SL_PCT = 0        # Equity stop loss percentage
 DEFAULT_MAX_SPREAD_PIPS = 3.0    # Max allowed spread in pips
 DEFAULT_GRID_STEP_LOSS_USD = 10.0  # Grid step based on dollar loss per position
@@ -728,7 +728,7 @@ def process_all_symbols(account_id: str, settings: Dict):
     grid_step = int(settings.get('Grid_Step', 100))
     max_positions = int(settings.get('Max_Open_Positions', DEFAULT_MAX_POSITIONS))
     lot_size = get_fixed_lot_size(settings)
-    MAX_TOTAL_POSITIONS = 20  # Hard limit: max 20 positions across all symbols
+    MAX_TOTAL_POSITIONS = 999  # No hard limit - grid continues until basket TP
     
     # Get all available symbols from MT5
     all_symbols = mt5.symbols_get()
