@@ -1,0 +1,13 @@
+from supabase import create_client
+s = create_client(
+    "https://lakbvdmjtoarmxmzvynu.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxha2J2ZG1qdG9hcm14bXp2eW51Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjkwMzA2NywiZXhwIjoyMDk4NDc5MDY3fQ.Y92Hm4kDpOVlOFZsRUkqlbuk3P4z7m-e3DARjtoqtvE"
+)
+
+# Disable daily drawdown limit
+result = s.table('tactics_settings').update({'value': {'value': None}}).eq('key', 'daily_drawdown_limit').execute()
+print(f"Updated daily_drawdown_limit: {result.data}")
+
+# Verify
+r = s.table('tactics_settings').select('key', 'value').eq('key', 'daily_drawdown_limit').execute()
+print(f"Current value: {r.data}")
