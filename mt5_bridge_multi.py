@@ -948,6 +948,57 @@ def execute_trade(symbol: str, order_type: str, lot_size: float, account_id: str
 # Track last hourly report time to avoid duplicate sends
 last_hourly_report_hour = None
 
+# Track floating loss alert (avoid spamming)
+FLOATING_LOSS_STEP = 50.0  # Alert every $50 of loss
+last_loss_alert_level = 0  # Last threshold level we alerted at (0 = no alert yet)
+
+def check_floating_loss(account_id: str):
+    """Send Telegram alert every time floating loss crosses a new $50 level."""
+    global last_loss_alert_level
+    
+    try:
+        positions = mt5.positions_get() or []
+        if not positions:
+            # No positions = no floating loss, reset
+            last_loss_alert_level = 0
+            return
+        
+        total_pl = sum(p.profit + p.swap for p in positions)
+        
+        if total_pl < 0:
+            # Calculate current loss level (e.g. -152 -> level 3 = $150)
+            current_level = int(abs(total_pl) // FLOATING_LOSS_STEP)
+            
+            if current_level > last_loss_alert_level:
+                # Count positions per symbol
+                symbols = {}
+                for p in positions:
+                    symbols[p.symbol] = symbols.get(p.symbol, 0) + 1
+                
+                positions_info = "\n".join(
+                    f"  📌 {sym}: {cnt} position(s)"
+                    for sym, cnt in symbols.items()
+                )
+                
+                send_telegram(
+                    f"🔴 <b>WARNING: Floating Loss Alert</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🏦 Account: <code>{account_id}</code>\n"
+                    f"💸 <b>Floating Loss:</b> ${total_pl:.2f}\n"
+                    f"📊 <b>Open Positions:</b> {len(positions)}\n"
+                    f"{positions_info}\n"
+                    f"\n"
+                    f"⚠️ Please monitor your account!"
+                )
+                last_loss_alert_level = current_level
+                log("WARN", f"Floating loss alert sent: ${total_pl:.2f} (level {current_level})", account_id)
+        else:
+            # Profit is positive, reset alert level
+            last_loss_alert_level = 0
+    
+    except Exception as e:
+        log("ERROR", f"Failed to check floating loss: {e}", account_id)
+
 def send_hourly_report(account_id: str, user_id: str):
     """Send hourly Telegram report with balance, open positions, and daily profit."""
     global last_hourly_report_hour
@@ -1447,6 +1498,9 @@ def process_account(account: Dict, safety_engines: Dict[str, SafetyEngine]) -> b
     
     # Send hourly Telegram report (once per hour)
     send_hourly_report(account_id, user_id)
+    
+    # Check floating loss and alert if needed
+    check_floating_loss(account_id)
     
     # === BASKET TP CHECK (Per Symbol) ===
     # Note: Basket TP is now handled inside process_all_symbols
