@@ -1,0 +1,558 @@
+"use client";
+
+import React, { useEffect, useState, useCallback } from "react";
+import MarketAnalysis from "./market/MarketAnalysis";
+import UserManagement from "./admin/UserManagement";
+import BridgeConsole from "./bridge/BridgeConsole";
+import AccountSettings from "./account/AccountSettings";
+import ProfitCalculator from "./profit-calculator/ProfitCalculator";
+import { useAuth } from "@/contexts/AuthContext";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface Trade {
+  ticket: string;
+  symbol: string;
+  type: "BUY" | "SELL";
+  volume: number;
+  entry: number;
+  sl: number;
+  tp: number;
+  livePL: number;
+  openTime: string;
+}
+
+type TabId = "dashboard" | "market" | "bridge" | "admin" | "account" | "profit-calculator";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function plColor(value: number | undefined | null): string {
+  const v = value ?? 0;
+  if (v > 0) return "text-emerald-400 glow-green";
+  if (v < 0) return "text-rose-400 glow-rose";
+  return "text-gray-500";
+}
+
+function formatPL(value: number | undefined | null): string {
+  const v = value ?? 0;
+  const sign = v > 0 ? "+" : "";
+  return `${sign}${v.toFixed(2)}`;
+}
+
+function formatUSD(value: number | undefined | null): string {
+  const v = value ?? 0;
+  return v.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function typeBadge(type: "BUY" | "SELL") {
+  return type === "BUY"
+    ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 glow-green"
+    : "bg-rose-500/15 text-rose-400 border border-rose-500/30 glow-rose";
+}
+
+function exportCSV(trades: Trade[]) {
+  const headers = ["Ticket", "Symbol", "Type", "Volume", "Entry", "SL", "TP", "Live P/L", "Open Time"];
+  const rows = trades.map((t) => [
+    t.ticket, t.symbol, t.type, t.volume, t.entry, t.sl, t.tp, t.livePL, t.openTime,
+  ]);
+  const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `active-trades-${Date.now()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── Stat Card ────────────────────────────────────────────────────────────────
+function StatCard({
+  label,
+  value,
+  accent = "cyan",
+}: {
+  label: string;
+  value: string;
+  accent?: "cyan" | "green" | "rose" | "white";
+}) {
+  const glowMap = {
+    cyan: "glow-cyan text-cyan-400",
+    green: "glow-green text-emerald-400",
+    rose: "glow-rose text-rose-400",
+    white: "glow-white text-white",
+  };
+  const boxMap = {
+    cyan: "glow-box-green border-emerald-500/20",
+    green: "glow-box-green border-emerald-500/20",
+    rose: "glow-box-rose border-rose-500/20",
+    white: "border-gray-800/50",
+  };
+  return (
+    <div
+      className={`flex flex-col items-center justify-center py-5 px-4 rounded-2xl bg-gray-900/30 border ${boxMap[accent]} transition-all duration-300`}
+    >
+      <span className="text-[10px] uppercase tracking-[0.2em] text-gray-500 font-medium mb-2">
+        {label}
+      </span>
+      <span className={`text-xl font-bold font-mono ${glowMap[accent]}`}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+// ─── Table Components ─────────────────────────────────────────────────────────
+function Th({ children }: { children: React.ReactNode }) {
+  return (
+    <th className="px-5 py-4 text-left text-[10px] font-semibold uppercase tracking-[0.15em] text-gray-500 border-b border-gray-800/50">
+      {children}
+    </th>
+  );
+}
+
+function Td({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <td
+      className={`px-5 py-4 text-sm font-mono border-b border-gray-800/30 ${className}`}
+    >
+      {children}
+    </td>
+  );
+}
+
+// ─── Tab Button ───────────────────────────────────────────────────────────────
+function TabButton({
+  active,
+  onClick,
+  children,
+  glowClass,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  glowClass: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-6 py-3 text-sm font-bold tracking-wide rounded-xl border transition-all duration-200
+        ${
+          active
+            ? `${glowClass} border-transparent bg-gray-900/50`
+            : "text-gray-500 border-gray-800/50 bg-transparent hover:text-gray-300 hover:border-gray-700"
+        }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+export default function HomePage() {
+  const { profile, user, loading: authLoading, refreshProfile, botActive, setBotActive } = useAuth();
+  const [activeTab, setActiveTab] = useState<TabId>("dashboard");
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [redirected, setRedirected] = useState(false);
+  const [botToggling, setBotToggling] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string>("");
+  const [metrics, setMetrics] = useState({
+    balance: 0,
+    equity: 0,
+    pl: 0,
+    margin: 0,
+    positions: 0,
+    todayNet: 0,
+  });
+
+  // Fetch bot_active from bot_status table
+  const fetchBotStatus = useCallback(async () => {
+    if (!profile?.mt5_account_id) return;
+    try {
+      const res = await fetch(`/api/profiles?mt5_account_id=${profile.mt5_account_id}&field=bot_status`);
+      if (res.ok) {
+        const json = await res.json();
+        setBotActive(json.bot_active ?? false);
+      }
+    } catch {
+      // silent
+    }
+  }, [profile?.mt5_account_id, setBotActive]);
+
+  // Fetch account metrics
+  const fetchMetrics = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await fetch("/api/account/metrics", {
+        headers: { "x-user-id": user.id },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMetrics({
+          balance: data.balance ?? 0,
+          equity: data.equity ?? 0,
+          pl: data.pl ?? 0,
+          margin: data.margin ?? 0,
+          positions: data.positions ?? 0,
+          todayNet: data.todayNet ?? 0,
+        });
+      }
+    } catch (err) {
+      console.error("[Metrics] Fetch error:", err);
+    }
+  }, [user]);
+
+  // Fetch bot status on mount and periodically
+  useEffect(() => {
+    fetchBotStatus();
+    fetchMetrics();
+    const interval = setInterval(() => {
+      fetchBotStatus();
+      fetchMetrics();
+    }, 10000); // Poll every 10s
+    return () => clearInterval(interval);
+  }, [fetchBotStatus, fetchMetrics]);
+
+  // Bot toggle handler
+  const handleBotToggle = async () => {
+    if (!profile || botToggling) return;
+    setBotToggling(true);
+    try {
+      const res = await fetch("/api/profiles", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: profile.id,
+          bot_active: !botActive,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      // Optimistic update
+      setBotActive(!botActive);
+    } catch (err) {
+      console.error("Bot toggle failed:", err);
+    } finally {
+      setBotToggling(false);
+    }
+  };
+
+  // All hooks must be defined BEFORE any early returns
+  const fetchTrades = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await fetch("/api/trades/active", {
+        headers: { "x-user-id": user.id },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      // Map snake_case DB columns to camelCase interface
+      const mapped: Trade[] = (json.trades || []).map((t: Record<string, unknown>) => ({
+        ticket: String(t.ticket ?? ""),
+        symbol: String(t.symbol ?? ""),
+        type: (t.type === "BUY" ? "BUY" : "SELL") as "BUY" | "SELL",
+        volume: Number(t.volume ?? 0),
+        entry: Number(t.entry ?? 0),
+        sl: Number(t.sl ?? 0),
+        tp: Number(t.tp ?? 0),
+        livePL: Number(t.live_pl ?? 0),
+        openTime: String(t.open_time ?? ""),
+      }));
+      setTrades(mapped);
+      setError(null);
+      setLastSyncTime(new Date().toLocaleTimeString());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch trades");
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  // Redirect to login if not authenticated (only once)
+  useEffect(() => {
+    if (!authLoading && !user && !redirected) {
+      setRedirected(true);
+      window.location.href = "/login";
+    }
+  }, [user, authLoading, redirected]);
+
+  // Fetch trades when authenticated
+  useEffect(() => {
+    if (!authLoading && user) {
+      fetchTrades();
+    }
+  }, [fetchTrades, authLoading, user]);
+
+  const isAdmin = profile?.role === "admin";
+  const isActive = profile?.status === "active";
+
+  // Show loading while auth is initializing
+  if (authLoading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-gray-700 border-t-cyan-500 rounded-full animate-spin"></div>
+          <span className="text-sm text-gray-500">Loading dashboard...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Show pending/suspended message
+  if (!authLoading && profile && !isActive) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-400">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-white glow-white mb-2">
+            Account {profile.status === "pending" ? "Pending Approval" : "Suspended"}
+          </h2>
+          <p className="text-sm text-gray-400">
+            {profile.status === "pending"
+              ? "Your account is pending admin approval. You will be notified once activated."
+              : "Your account has been suspended. Please contact an administrator."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Computed stats ───────────────────────────────────────────────────────
+  const totalPL = trades.reduce((sum, t) => sum + t.livePL, 0);
+
+  return (
+    <div className={`${(activeTab === "market" || activeTab === "bridge") ? "w-full px-4" : "max-w-[1400px] mx-auto"} flex flex-col ${(activeTab === "market" || activeTab === "bridge") ? "gap-4" : "gap-8"}`}>
+      {/* ─── Tab Navigation ───────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 pt-2">
+        <TabButton
+          active={activeTab === "dashboard"}
+          onClick={() => setActiveTab("dashboard")}
+          glowClass="text-cyan-400 glow-cyan"
+        >
+          Trading Journal
+        </TabButton>
+        <TabButton
+          active={activeTab === "market"}
+          onClick={() => setActiveTab("market")}
+          glowClass="text-violet-400 glow-violet"
+        >
+          Live
+        </TabButton>
+        {/* Bridge Console - All users */}
+        <TabButton
+          active={activeTab === "bridge"}
+          onClick={() => setActiveTab("bridge")}
+          glowClass="text-sky-400"
+        >
+          Bridge
+        </TabButton>
+        {/* Account Settings - Hidden */}
+        {/* Profit Calculator - All users */}
+        <TabButton
+          active={activeTab === "profit-calculator"}
+          onClick={() => setActiveTab("profit-calculator")}
+          glowClass="text-emerald-400 glow-green"
+        >
+          Profit Calculator
+        </TabButton>
+      </div>
+
+      {/* ─── Tab Content ──────────────────────────────────────────────────── */}
+      {activeTab === "dashboard" ? (
+        <div className="flex flex-col gap-8">
+          {/* Page Header */}
+          <div className="flex items-end justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-white glow-white">
+                Active Trades
+              </h1>
+              <p className="text-sm text-gray-500 mt-1.5">
+                Real-time positions from Exness MT5 &bull; Account{" "}
+                <span className="text-gray-400 font-mono">{profile?.mt5_account_id || "—"}</span>
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              {/* Bot Status Toggle */}
+              <div className="flex items-center gap-3 px-4 py-2 rounded-xl border border-gray-800/50 bg-gray-900/30">
+                <span className="text-[10px] uppercase tracking-[0.15em] text-gray-500 font-medium">Bot Status</span>
+                <button
+                  onClick={handleBotToggle}
+                  disabled={botToggling}
+                  className={`relative w-12 h-6 rounded-full transition-all duration-300 ${
+                    botActive
+                      ? "bg-emerald-500/30 border border-emerald-500/50 glow-green"
+                      : "bg-rose-500/20 border border-rose-500/30"
+                  }`}
+                >
+                  <div
+                    className={`absolute top-0.5 w-5 h-5 rounded-full transition-all duration-300 ${
+                      botActive
+                        ? "left-6 bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]"
+                        : "left-0.5 bg-rose-400"
+                    }`}
+                  />
+                </button>
+                <span
+                  className={`text-xs font-bold tracking-wide ${
+                    botActive
+                      ? "text-emerald-400 glow-green"
+                      : "text-rose-400/70"
+                  }`}
+                >
+                  {botActive ? "RUNNING" : "STOPPED"}
+                </span>
+              </div>
+              <button
+                onClick={() => exportCSV(trades)}
+                disabled={trades.length === 0}
+                className="flex items-center gap-2 text-xs font-medium text-gray-400 hover:text-emerald-400 border border-gray-700 hover:border-emerald-500/40 rounded-xl px-4 py-2 transition-all duration-200 disabled:opacity-30 bg-gray-900/30"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                Export CSV
+              </button>
+              <button
+                onClick={fetchTrades}
+                disabled={loading}
+                className="text-xs font-medium text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-xl px-4 py-2 transition-all duration-200 disabled:opacity-30 bg-gray-900/30"
+              >
+                {loading ? "Loading..." : "Refresh"}
+              </button>
+            </div>
+          </div>
+
+          {/* Error State */}
+          {error && (
+            <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl px-5 py-4 text-rose-400 text-sm">
+              <span className="font-bold">Connection error:</span> {error}
+              <span className="text-rose-400/50 ml-2">
+                — Check your .env.local Supabase credentials
+              </span>
+            </div>
+          )}
+
+          {/* Trades Data Grid */}
+          <div className="overflow-x-auto rounded-2xl border border-gray-800/50 bg-gray-950/40">
+            <table className="w-full min-w-[960px]">
+              <thead>
+                <tr className="bg-gray-900/50">
+                  <Th>Ticket</Th>
+                  <Th>Symbol</Th>
+                  <Th>Type</Th>
+                  <Th>Volume</Th>
+                  <Th>Entry</Th>
+                  <Th>SL</Th>
+                  <Th>TP</Th>
+                  <Th>Live P/L</Th>
+                  <Th>Open Time</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={9} className="text-center py-20 text-gray-600">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="w-7 h-7 border-2 border-gray-700 border-t-emerald-500 rounded-full animate-spin"></div>
+                        <span className="text-sm text-gray-500">
+                          Fetching active trades...
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : trades.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="text-center py-20 text-gray-600">
+                      <div className="flex flex-col items-center gap-3">
+                        <span className="text-5xl opacity-40">📊</span>
+                        <span className="text-sm text-gray-500">
+                          No active trades
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  trades.map((trade) => (
+                    <tr
+                      key={trade.ticket}
+                      className="hover:bg-gray-900/30 transition-colors duration-150"
+                    >
+                      <Td className="text-gray-400">{trade.ticket}</Td>
+                      <Td className="text-white font-semibold">{trade.symbol}</Td>
+                      <Td>
+                        <span
+                          className={`inline-block px-2.5 py-1 rounded-lg text-[11px] font-bold ${typeBadge(trade.type)}`}
+                        >
+                          {trade.type}
+                        </span>
+                      </Td>
+                      <Td className="text-gray-400">{(trade.volume ?? 0).toFixed(2)}</Td>
+                      <Td className="text-gray-300">{trade.entry ?? "—"}</Td>
+                      <Td className="text-rose-400/80">{trade.sl ?? "—"}</Td>
+                      <Td className="text-emerald-400/80">{trade.tp ?? "—"}</Td>
+                      <Td className={`font-bold ${plColor(trade.livePL)}`}>
+                        {formatPL(trade.livePL)}
+                      </Td>
+                      <Td className="text-gray-600 text-xs">{trade.openTime || "—"}</Td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Footer Summary */}
+          <div className="flex items-center justify-between text-xs text-gray-600 px-1 pb-4">
+            <span>
+              Net P/L:{" "}
+              <span className={`font-bold ${plColor(totalPL)}`}>
+                ${formatUSD(totalPL)}
+              </span>
+            </span>
+            <span className="font-mono">
+              Last sync: {lastSyncTime || "..."}
+            </span>
+          </div>
+        </div>
+      ) : activeTab === "bridge" ? (
+        <BridgeConsole />
+      ) : activeTab === "admin" ? (
+        <UserManagement />
+      ) : activeTab === "account" ? (
+        <AccountSettings />
+      ) : activeTab === "profit-calculator" ? (
+        <ProfitCalculator />
+      ) : (
+        <MarketAnalysis />
+      )}
+    </div>
+  );
+}
