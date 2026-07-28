@@ -46,8 +46,15 @@ TELEGRAM_ENABLED = True  # Set to False to disable notifications
 
 def send_telegram(message: str):
     """Send a Telegram notification to all configured accounts."""
+    import ssl
     if not TELEGRAM_ENABLED:
         return
+    
+    # Create SSL context that ignores certificate errors (for VPS with proxy/firewall)
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    
     for account in TELEGRAM_ACCOUNTS:
         try:
             url = f"https://api.telegram.org/bot{account['token']}/sendMessage"
@@ -57,7 +64,7 @@ def send_telegram(message: str):
                 "parse_mode": "HTML",
             }).encode()
             req = urllib.request.Request(url, data=data, method="POST")
-            urllib.request.urlopen(req, timeout=10)
+            urllib.request.urlopen(req, timeout=10, context=ssl_context)
         except Exception as e:
             print(f"[TELEGRAM] Failed to send to {account['chat_id']}: {e}")
 
