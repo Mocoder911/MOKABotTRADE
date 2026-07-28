@@ -685,15 +685,17 @@ def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, ac
         step_points: Legacy parameter (not used anymore)
         lot_size: Lot size for new position
         account_id: Account ID for logging
-        max_positions: Maximum positions per symbol
+        max_positions: Legacy parameter (grid steps are now unlimited)
         step_loss_usd: Dollar loss threshold to trigger next grid level (default: DEFAULT_GRID_STEP_LOSS_USD)
     """
     if step_loss_usd is None:
         step_loss_usd = DEFAULT_GRID_STEP_LOSS_USD
     
     positions = get_symbol_positions(symbol)
-    if not positions or len(positions) >= max_positions:
+    if not positions:
         return
+    
+    # Grid steps are UNLIMITED - no max_positions check
     
     # Get the most recent position
     last_pos = max(positions, key=lambda p: p.time)
@@ -734,11 +736,11 @@ def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, ac
         if profit_usd <= -step_loss_usd:
             log("INFO", f"[GRID] {symbol}: Last position P/L ${profit_usd:.2f} <= -${step_loss_usd} -> OPENING GRID LEVEL {len(positions)+1}/{max_positions}", account_id)
             
-            # Open new position in same direction
+            # Open new position in same direction (GRID STEP - not counted in base orders)
             if last_pos.type == mt5.POSITION_TYPE_BUY:
-                execute_trade(symbol, "BUY", lot_size, account_id)
+                execute_trade(symbol, "BUY", lot_size, account_id, is_base_order=False)
             else:
-                execute_trade(symbol, "SELL", lot_size, account_id)
+                execute_trade(symbol, "SELL", lot_size, account_id, is_base_order=False)
         else:
             log("DEBUG", f"[GRID] {symbol}: Last position P/L ${profit_usd:.2f} (threshold: -${step_loss_usd})", account_id)
             
@@ -749,15 +751,15 @@ def process_all_symbols(account_id: str, settings: Dict):
     """
     Process all allowed symbols with grid trading logic:
     1. Check basket TP and close if target reached
-    2. For closed symbols (by basket TP), immediately re-open
-    3. For symbols with no positions, check direction and open
-    4. Max 20 total positions across all symbols
+    2. For closed symbols (by basket TP), immediately re-open base order
+    3. For symbols with no positions, check direction and open base order
+    4. Max 15 BASE orders across all symbols (grid steps are unlimited)
     """
     basket_tp = float(settings.get('Basket_Take_Profit', 10))
     grid_step = int(settings.get('Grid_Step', 100))
     max_positions = int(settings.get('Max_Open_Positions', DEFAULT_MAX_POSITIONS))
     lot_size = get_fixed_lot_size(settings)
-    MAX_TOTAL_POSITIONS = 20  # Hard limit - no new positions until total drops below this
+    MAX_BASE_ORDERS = 15  # Hard limit on BASE orders only - grid steps are unlimited
     
     # Get all available symbols from MT5
     all_symbols = mt5.symbols_get()
@@ -776,59 +778,59 @@ def process_all_symbols(account_id: str, settings: Dict):
                     log("DEBUG", f"[MARKET WATCH] Added: {sym.name}", account_id)
             allowed_symbols.append(sym.name)
     
-    # Get current total positions count
+    # Get current base orders count (positions with comment "MOKABot Base")
     all_positions = mt5.positions_get() or []
-    total_open = len(all_positions)
+    base_orders_count = sum(1 for p in all_positions if p.comment == "MOKABot Base")
+    total_positions = len(all_positions)
     
-    log("INFO", f"Processing {len(allowed_symbols)} symbols | Total positions: {total_open}/{MAX_TOTAL_POSITIONS}", account_id)
+    log("INFO", f"Processing {len(allowed_symbols)} symbols | Base orders: {base_orders_count}/{MAX_BASE_ORDERS} | Total positions: {total_positions}", account_id)
     
     # Step 1: Check basket TP for all symbols
     closed_symbols = check_basket_tp_per_symbol(account_id, basket_tp)
     
-    # Refresh total count after basket TP closes
+    # Refresh counts after basket TP closes
     all_positions = mt5.positions_get() or []
-    total_open = len(all_positions)
+    base_orders_count = sum(1 for p in all_positions if p.comment == "MOKABot Base")
     
     # Step 2: Process each symbol
     for symbol in allowed_symbols:
-        # Check global limit before any new trade
-        if total_open >= MAX_TOTAL_POSITIONS:
-            log("DEBUG", f"[MAX TOTAL] {symbol}: Total positions {total_open}/{MAX_TOTAL_POSITIONS} - NO new trades", account_id)
-            break
-        
         positions = get_symbol_positions(symbol)
         total_orders = len(positions)
         total_profit = get_symbol_open_profit(symbol)
         
-        # Case 1: No positions - ONLY open if we have room AND symbol was NOT just closed by basket TP
+        # Count base orders for this symbol
+        symbol_base_orders = sum(1 for p in positions if p.comment == "MOKABot Base")
+        
+        # Case 1: No positions - open base order if we have room
         if total_orders == 0:
-            # Don't re-open immediately after basket TP - wait for total to drop below limit
-            if symbol in closed_symbols:
-                log("DEBUG", f"[WAIT] {symbol}: Basket TP hit - waiting for total positions to drop below {MAX_TOTAL_POSITIONS}", account_id)
+            # Check if we can open a new base order
+            if base_orders_count >= MAX_BASE_ORDERS:
+                log("DEBUG", f"[MAX BASE] {symbol}: Base orders {base_orders_count}/{MAX_BASE_ORDERS} - NO new base order", account_id)
                 continue
             
-            # Only open new positions if we're well below the limit
-            if total_open < MAX_TOTAL_POSITIONS:
-                direction = check_market_direction(symbol)
-                if direction != 'NONE':
-                    log("INFO", f"[OPEN] {symbol}: No positions | Direction={direction} -> OPENING ({total_open+1}/{MAX_TOTAL_POSITIONS})", account_id)
-                    result = execute_trade(symbol, direction, lot_size, account_id)
-                    if result:
-                        total_open += 1
+            # Open new base order (including symbols just closed by basket TP)
+            direction = check_market_direction(symbol)
+            if direction != 'NONE':
+                if symbol in closed_symbols:
+                    log("INFO", f"[RE-OPEN BASE] {symbol}: Basket TP hit | Direction={direction} -> OPENING ({base_orders_count+1}/{MAX_BASE_ORDERS})", account_id)
                 else:
-                    log("DEBUG", f"[SKIP] {symbol}: No positions | Direction=NONE -> SKIP", account_id)
+                    log("INFO", f"[OPEN BASE] {symbol}: No positions | Direction={direction} -> OPENING ({base_orders_count+1}/{MAX_BASE_ORDERS})", account_id)
+                result = execute_trade(symbol, direction, lot_size, account_id, is_base_order=True)
+                if result:
+                    base_orders_count += 1
+            else:
+                log("DEBUG", f"[SKIP] {symbol}: No positions | Direction=NONE -> SKIP", account_id)
         
         # Case 2: Has positions - check grid step and monitor (PRIORITY - reinforce existing)
         elif total_orders >= 1:
-            # Check if we should open a grid level (every $10 loss)
-            if total_orders < max_positions:
-                check_and_open_grid_steps(symbol, grid_step, lot_size, account_id, max_positions)
-                # Refresh position count after potential grid open
-                positions = get_symbol_positions(symbol)
-                total_orders = len(positions)
-                total_profit = get_symbol_open_profit(symbol)
+            # Check if we should open a grid level (every $10 loss) - UNLIMITED grid steps
+            check_and_open_grid_steps(symbol, grid_step, lot_size, account_id, max_positions)
+            # Refresh position count after potential grid open
+            positions = get_symbol_positions(symbol)
+            total_orders = len(positions)
+            total_profit = get_symbol_open_profit(symbol)
             
-            log("DEBUG", f"[MONITOR] {symbol}: {total_orders}/{max_positions} positions | P/L=${total_profit:.2f} | Waiting for basket TP ${basket_tp}", account_id)
+            log("DEBUG", f"[MONITOR] {symbol}: {total_orders} positions ({symbol_base_orders} base) | P/L=${total_profit:.2f} | Waiting for basket TP ${basket_tp}", account_id)
 
 def close_position(pos, account_id: str):
     """Close a single position."""
@@ -890,10 +892,11 @@ def close_position(pos, account_id: str):
 # ============================================
 # TRADE EXECUTION
 # ============================================
-def execute_trade(symbol: str, order_type: str, lot_size: float, account_id: str) -> bool:
+def execute_trade(symbol: str, order_type: str, lot_size: float, account_id: str, is_base_order: bool = True) -> bool:
     """
     Execute a trade order.
     order_type: 'BUY' or 'SELL'
+    is_base_order: True for base order, False for grid step
     """
     # HARD SECURITY CHECK: Verify symbol is allowed before ANY trade
     if not is_allowed_symbol(symbol, {}):
@@ -915,6 +918,9 @@ def execute_trade(symbol: str, order_type: str, lot_size: float, account_id: str
         price = tick.ask if order_type == "BUY" else tick.bid
         mt5_order_type = mt5.ORDER_TYPE_BUY if order_type == "BUY" else mt5.ORDER_TYPE_SELL
         
+        # Use different comments to distinguish base orders from grid steps
+        comment = "MOKABot Base" if is_base_order else "MOKABot Grid"
+        
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
@@ -923,7 +929,7 @@ def execute_trade(symbol: str, order_type: str, lot_size: float, account_id: str
             "price": price,
             "deviation": 20,
             "magic": 100000,
-            "comment": "MOKABot Grid",
+            "comment": comment,
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": mt5.ORDER_FILLING_FOK,
         }
@@ -931,9 +937,10 @@ def execute_trade(symbol: str, order_type: str, lot_size: float, account_id: str
         result = mt5.order_send(request)
         
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-            log("INFO", f"[TRADE OPENED] {order_type} {symbol} {lot_size} lots @ {price} | Order: {result.order}", account_id)
+            order_type_label = "BASE" if is_base_order else "GRID"
+            log("INFO", f"[{order_type_label} OPENED] {order_type} {symbol} {lot_size} lots @ {price} | Order: {result.order}", account_id)
             send_telegram(
-                f"🟢 <b>TRADE OPENED</b>\n"
+                f"🟢 <b>TRADE OPENED ({order_type_label})</b>\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"📊 Symbol: <b>{symbol}</b>\n"
                 f"📌 Direction: <b>{order_type}</b>\n"
