@@ -38,9 +38,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # TELEGRAM NOTIFICATIONS
 # ============================================
 # Get from @BotFather on Telegram
-TELEGRAM_BOT_TOKEN = "8989474621:AAE__nslSBkxlhC3eXG8FMzYj9KGLVLbYnU"
+TELEGRAM_BOT_TOKEN = "8676258690:AAEJafRn1ks4tJ_jvnDNQf8FEq3fLnIVHMo"
 # Get from @userinfobot or by sending a message to your bot
-TELEGRAM_CHAT_ID = "5935024063"
+TELEGRAM_CHAT_ID = "8449825809"
 TELEGRAM_ENABLED = True  # Set to False to disable notifications
 
 def send_telegram(message: str):
@@ -1066,6 +1066,78 @@ def send_hourly_report(account_id: str, user_id: str):
     except Exception as e:
         log("ERROR", f"Failed to send hourly report: {e}", account_id)
 
+# Daily report tracking
+last_daily_report_date = None
+
+def send_daily_midnight_report(account_id: str):
+    """Send daily Today's Net report at midnight Cairo time (00:00 UTC+2)."""
+    global last_daily_report_date
+    
+    try:
+        # Get current Cairo time (UTC+2)
+        now_utc = datetime.now(timezone.utc)
+        cairo_now = now_utc + timedelta(hours=2)
+        
+        # Check if it's midnight (00:00 - 00:05 window)
+        if cairo_now.hour != 0 or cairo_now.minute >= 5:
+            return
+        
+        today_str = cairo_now.strftime("%Y-%m-%d")
+        
+        # Check if we already sent today's report
+        if last_daily_report_date == today_str:
+            return
+        
+        # Calculate Today's Net (closed trades since midnight Cairo time)
+        cairo_midnight = cairo_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        cairo_midnight_utc = cairo_midnight - timedelta(hours=2)  # Convert back to UTC
+        cairo_midnight_iso = cairo_midnight_utc.isoformat()
+        
+        # Get closed trades today
+        try:
+            closed_today = supabase.table("trades").select("live_pl").eq("account_id", account_id).eq("status", "closed").gte("closed_at", cairo_midnight_iso).execute()
+            closed_trades = closed_today.data if closed_today.data else []
+            today_net = sum(t.get("live_pl", 0) or 0 for t in closed_trades)
+            trade_count = len(closed_trades)
+        except Exception:
+            today_net = 0
+            trade_count = 0
+        
+        # Get current account info
+        info = mt5.account_info()
+        balance = info.balance if info else 0
+        equity = info.equity if info else 0
+        
+        # Get floating P/L
+        positions = mt5.positions_get() or []
+        floating_pl = sum(p.profit + p.swap for p in positions)
+        
+        # Determine emoji
+        net_emoji = "🟢" if today_net >= 0 else "🔴"
+        
+        message = (
+            f"📊 <b>Daily Report - {today_str}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🏦 Account: <code>{account_id}</code>\n"
+            f"\n"
+            f"{net_emoji} <b>Today's Net:</b> ${today_net:.2f}\n"
+            f"📈 Closed Trades: {trade_count}\n"
+            f"\n"
+            f"💼 Balance: ${balance:.2f}\n"
+            f"💎 Equity: ${equity:.2f}\n"
+            f"📊 Floating P/L: ${floating_pl:.2f}\n"
+            f"\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🤖 MOKABot Auto-Report"
+        )
+        
+        send_telegram(message)
+        last_daily_report_date = today_str
+        log("INFO", f"Daily midnight report sent: Today's Net ${today_net:.2f}", account_id)
+        
+    except Exception as e:
+        log("ERROR", f"Failed to send daily report: {e}", account_id)
+
 def send_heartbeat(account_id: str, user_id: str):
     """Send heartbeat to database."""
     try:
@@ -1501,6 +1573,9 @@ def process_account(account: Dict, safety_engines: Dict[str, SafetyEngine]) -> b
     
     # Check floating loss and alert if needed
     check_floating_loss(account_id)
+    
+    # Check if it's midnight Cairo time and send daily report
+    send_daily_midnight_report(account_id)
     
     # === BASKET TP CHECK (Per Symbol) ===
     # Note: Basket TP is now handled inside process_all_symbols
