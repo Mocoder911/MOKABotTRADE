@@ -1013,9 +1013,12 @@ def send_hourly_report(account_id: str, user_id: str):
     if current_hour == last_hourly_report_hour:
         return  # Already sent this hour
     
+    log("INFO", f"[TELEGRAM] Attempting to send hourly report...", account_id)
+    
     try:
         info = mt5.account_info()
         if not info:
+            log("WARN", f"[TELEGRAM] Failed to get account info - MT5 not connected", account_id)
             return
         
         positions = mt5.positions_get() or []
