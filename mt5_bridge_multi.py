@@ -757,7 +757,7 @@ def process_all_symbols(account_id: str, settings: Dict):
     grid_step = int(settings.get('Grid_Step', 100))
     max_positions = int(settings.get('Max_Open_Positions', DEFAULT_MAX_POSITIONS))
     lot_size = get_fixed_lot_size(settings)
-    MAX_TOTAL_POSITIONS = 999  # No hard limit - grid continues until basket TP
+    MAX_TOTAL_POSITIONS = 20  # Hard limit - no new positions until total drops below this
     
     # Get all available symbols from MT5
     all_symbols = mt5.symbols_get()
@@ -800,21 +800,25 @@ def process_all_symbols(account_id: str, settings: Dict):
         total_orders = len(positions)
         total_profit = get_symbol_open_profit(symbol)
         
-        # Case 1: No positions - open first trade (includes symbols just closed by basket TP)
+        # Case 1: No positions - ONLY open if we have room AND symbol was NOT just closed by basket TP
         if total_orders == 0:
-            direction = check_market_direction(symbol)
-            if direction != 'NONE':
-                if symbol in closed_symbols:
-                    log("INFO", f"[RE-OPEN] {symbol}: Basket TP hit | Direction={direction} -> OPENING ({total_open+1}/{MAX_TOTAL_POSITIONS})", account_id)
-                else:
+            # Don't re-open immediately after basket TP - wait for total to drop below limit
+            if symbol in closed_symbols:
+                log("DEBUG", f"[WAIT] {symbol}: Basket TP hit - waiting for total positions to drop below {MAX_TOTAL_POSITIONS}", account_id)
+                continue
+            
+            # Only open new positions if we're well below the limit
+            if total_open < MAX_TOTAL_POSITIONS:
+                direction = check_market_direction(symbol)
+                if direction != 'NONE':
                     log("INFO", f"[OPEN] {symbol}: No positions | Direction={direction} -> OPENING ({total_open+1}/{MAX_TOTAL_POSITIONS})", account_id)
-                result = execute_trade(symbol, direction, lot_size, account_id)
-                if result:
-                    total_open += 1
-            else:
-                log("DEBUG", f"[SKIP] {symbol}: No positions | Direction=NONE -> SKIP", account_id)
+                    result = execute_trade(symbol, direction, lot_size, account_id)
+                    if result:
+                        total_open += 1
+                else:
+                    log("DEBUG", f"[SKIP] {symbol}: No positions | Direction=NONE -> SKIP", account_id)
         
-        # Case 2: Has positions - check grid step and monitor
+        # Case 2: Has positions - check grid step and monitor (PRIORITY - reinforce existing)
         elif total_orders >= 1:
             # Check if we should open a grid level (every $10 loss)
             if total_orders < max_positions:
