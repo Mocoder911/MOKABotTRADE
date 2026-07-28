@@ -1018,13 +1018,18 @@ def send_hourly_report(account_id: str, user_id: str):
         open_positions_count = len(positions)
         total_open_profit = sum(p.profit + p.swap for p in positions)
         
-        # Calculate daily profit from closed trades today
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        # Calculate daily profit from closed trades today (Cairo midnight)
+        now_utc = datetime.now(timezone.utc)
+        cairo_now = now_utc + timedelta(hours=2)
+        cairo_midnight = cairo_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        cairo_midnight_utc = cairo_midnight - timedelta(hours=2)
+        today_start = cairo_midnight_utc.isoformat()
+        
         daily_profit = 0.0
         try:
-            closed_today = supabase.table("trades").select("profit_at_close").eq("account_id", account_id).eq("status", "closed").gte("closed_at", today_start).execute()
+            closed_today = supabase.table("trades").select("live_pl").eq("account_id", account_id).eq("status", "closed").gte("closed_at", today_start).execute()
             if closed_today.data:
-                daily_profit = sum(t.get('profit_at_close', 0) or 0 for t in closed_today.data)
+                daily_profit = sum(t.get('live_pl', 0) or 0 for t in closed_today.data)
         except Exception:
             pass
         
@@ -1032,33 +1037,24 @@ def send_hourly_report(account_id: str, user_id: str):
         now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
         balance = info.balance
         equity = info.equity
-        margin = info.margin
         free_margin = info.margin_free
         
         # Determine status emoji
-        if total_open_profit >= 0:
-            profit_emoji = "🟢"
-        else:
-            profit_emoji = "🔴"
-        
-        if daily_profit >= 0:
-            daily_emoji = "🟢"
-        else:
-            daily_emoji = "🔴"
+        profit_emoji = "🟢" if total_open_profit >= 0 else "🔴"
+        daily_emoji = "🟢" if daily_profit >= 0 else "🔴"
         
         message = (
             f"📊 <b>Hourly Report</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"🕐 Time: <b>{now_str}</b>\n"
-            f"🏦 Account: <code>{account_id}</code>\n"
+            f"\n"
+            f"⏱️ <b>Time:</b> {now_str}\n"
+            f"🏛️ <b>Account:</b> <code>{account_id}</code>\n"
             f"\n"
             f"💰 <b>Balance:</b> ${balance:.2f}\n"
             f"💎 <b>Equity:</b> ${equity:.2f}\n"
             f"📌 <b>Open Positions:</b> {open_positions_count}\n"
             f"{profit_emoji} <b>Open P/L:</b> ${total_open_profit:.2f}\n"
             f"{daily_emoji} <b>Daily Profit:</b> ${daily_profit:.2f}\n"
-            f"\n"
-            f"💵 <b>Free Margin:</b> ${free_margin:.2f}"
+            f"💶 <b>Free Margin:</b> ${free_margin:.2f}"
         )
         
         send_telegram(message)
