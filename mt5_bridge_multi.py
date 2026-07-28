@@ -724,27 +724,11 @@ def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, ac
         return
     
     try:
-        # Calculate current profit/loss for this position
-        current_price = tick.bid if last_pos.type == mt5.POSITION_TYPE_BUY else tick.ask
-        open_price = last_pos.price_open
-        volume = last_pos.volume
+        # CRITICAL FIX: Use MT5's built-in profit calculation (already in USD)
+        # This is much more accurate than manual calculation
+        profit_usd = last_pos.profit + last_pos.swap
         
-        # Get symbol info for calculation
-        info = mt5.symbol_info(symbol)
-        if not info:
-            return
-        
-        # Calculate profit in USD
-        contract_size = info.trade_contract_size  # Usually 100000 for forex
-        point = info.point
-        
-        if last_pos.type == mt5.POSITION_TYPE_BUY:
-            price_diff = current_price - open_price
-        else:
-            price_diff = open_price - current_price
-        
-        # Calculate profit in account currency (assuming USD)
-        profit_usd = price_diff / point * volume * contract_size * point
+        log("DEBUG", f"[GRID] {symbol}: Last position P/L ${profit_usd:.2f} (profit: ${last_pos.profit:.2f}, swap: ${last_pos.swap:.2f})", account_id)
         
         # Check if loss reached threshold
         if profit_usd <= -step_loss_usd:
