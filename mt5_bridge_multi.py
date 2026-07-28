@@ -687,6 +687,9 @@ def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, ac
     Check if the last position has reached the loss threshold and open new grid position.
     Uses MONEY-BASED grid step (dollar loss) instead of points to avoid digit confusion.
     
+    PREVENTS DUPLICATE ORDERS: Only opens one grid step per symbol per cycle,
+    and only if the last position is at least 60 seconds old.
+    
     Args:
         symbol: Trading symbol
         step_points: Legacy parameter (not used anymore)
@@ -695,6 +698,7 @@ def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, ac
         max_positions: Legacy parameter (grid steps are now unlimited)
         step_loss_usd: Dollar loss threshold to trigger next grid level (default: DEFAULT_GRID_STEP_LOSS_USD)
     """
+    import time
     if step_loss_usd is None:
         step_loss_usd = DEFAULT_GRID_STEP_LOSS_USD
     
@@ -707,13 +711,18 @@ def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, ac
     # Get the most recent position
     last_pos = max(positions, key=lambda p: p.time)
     
+    # CRITICAL: Prevent duplicate orders - check if last position is at least 60 seconds old
+    current_time = time.time()
+    last_pos_age = current_time - last_pos.time
+    if last_pos_age < 60:
+        log("DEBUG", f"[GRID] {symbol}: Last position opened {last_pos_age:.0f}s ago (< 60s) - WAITING", account_id)
+        return
+    
     # Calculate floating P/L for this position
-    # We need to get the current price and calculate profit
     tick = mt5.symbol_info_tick(symbol)
     if not tick:
         return
     
-    # Get position details
     try:
         # Calculate current profit/loss for this position
         current_price = tick.bid if last_pos.type == mt5.POSITION_TYPE_BUY else tick.ask
@@ -726,8 +735,6 @@ def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, ac
             return
         
         # Calculate profit in USD
-        # For BUY: profit = (current_price - open_price) * volume * contract_size * point_value
-        # For SELL: profit = (open_price - current_price) * volume * contract_size * point_value
         contract_size = info.trade_contract_size  # Usually 100000 for forex
         point = info.point
         
@@ -741,7 +748,7 @@ def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, ac
         
         # Check if loss reached threshold
         if profit_usd <= -step_loss_usd:
-            log("INFO", f"[GRID] {symbol}: Last position P/L ${profit_usd:.2f} <= -${step_loss_usd} -> OPENING GRID LEVEL {len(positions)+1}/{max_positions}", account_id)
+            log("INFO", f"[GRID] {symbol}: Last position P/L ${profit_usd:.2f} <= -${step_loss_usd} -> OPENING GRID STEP (total: {len(positions)+1})", account_id)
             
             # Open new position in same direction (GRID STEP - not counted in base orders)
             if last_pos.type == mt5.POSITION_TYPE_BUY:
@@ -825,6 +832,10 @@ def process_all_symbols(account_id: str, settings: Dict):
                 result = execute_trade(symbol, direction, lot_size, account_id, is_base_order=True)
                 if result:
                     base_orders_count += 1
+                    # CRITICAL: After opening a base order, wait before processing next symbols
+                    # This prevents opening multiple base orders in the same cycle
+                    import time
+                    time.sleep(2)  # Wait 2 seconds between base order openings
             else:
                 log("DEBUG", f"[SKIP] {symbol}: No positions | Direction=NONE -> SKIP", account_id)
         
