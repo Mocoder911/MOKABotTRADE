@@ -37,27 +37,29 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # ============================================
 # TELEGRAM NOTIFICATIONS
 # ============================================
-# Get from @BotFather on Telegram
-TELEGRAM_BOT_TOKEN = "8676258690:AAEJafRn1ks4tJ_jvnDNQf8FEq3fLnIVHMo"
-# Get from @userinfobot or by sending a message to your bot
-TELEGRAM_CHAT_ID = "8449825809"
+# Multiple Telegram accounts to receive notifications
+TELEGRAM_ACCOUNTS = [
+    {"token": "8676258690:AAEJafRn1ks4tJ_jvnDNQf8FEq3fLnIVHMo", "chat_id": "8449825809"},
+    {"token": "8989474621:AAE__nslSBkxlhC3eXG8FMzYj9KGLVLbYnU", "chat_id": "5935024063"},
+]
 TELEGRAM_ENABLED = True  # Set to False to disable notifications
 
 def send_telegram(message: str):
-    """Send a Telegram notification. Silently fails if not configured."""
-    if not TELEGRAM_ENABLED or TELEGRAM_BOT_TOKEN == "YOUR_BOT_TOKEN_HERE" or TELEGRAM_CHAT_ID == "YOUR_CHAT_ID_HERE":
+    """Send a Telegram notification to all configured accounts."""
+    if not TELEGRAM_ENABLED:
         return
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        data = urllib.parse.urlencode({
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message,
-            "parse_mode": "HTML",
-        }).encode()
-        req = urllib.request.Request(url, data=data, method="POST")
-        urllib.request.urlopen(req, timeout=10)
-    except Exception as e:
-        print(f"[TELEGRAM] Failed to send: {e}")
+    for account in TELEGRAM_ACCOUNTS:
+        try:
+            url = f"https://api.telegram.org/bot{account['token']}/sendMessage"
+            data = urllib.parse.urlencode({
+                "chat_id": account['chat_id'],
+                "text": message,
+                "parse_mode": "HTML",
+            }).encode()
+            req = urllib.request.Request(url, data=data, method="POST")
+            urllib.request.urlopen(req, timeout=10)
+        except Exception as e:
+            print(f"[TELEGRAM] Failed to send to {account['chat_id']}: {e}")
 
 # ============================================
 # CONNECTION TIMEOUT & FAILURE TRACKING
