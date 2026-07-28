@@ -14,7 +14,8 @@ import os
 import sys
 import time
 import json
-import requests
+import urllib.request
+import urllib.parse
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional, List
 
@@ -34,134 +35,29 @@ SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ============================================
-# TELEGRAM CONFIGURATION
+# TELEGRAM NOTIFICATIONS
 # ============================================
-TELEGRAM_BOT_TOKEN = "8676258690:AAEJafRn1ks4tJ_jvnDNQf8FEq3fLnIVHMo"
-TELEGRAM_CHAT_ID = 8449825809
+# Get from @BotFather on Telegram
+TELEGRAM_BOT_TOKEN = "8989474621:AAE__nslSBkxlhC3eXG8FMzYj9KGLVLbYnU"
+# Get from @userinfobot or by sending a message to your bot
+TELEGRAM_CHAT_ID = "5935024063"
+TELEGRAM_ENABLED = True  # Set to False to disable notifications
 
 def send_telegram(message: str):
-    """Send a message to Telegram."""
+    """Send a Telegram notification. Silently fails if not configured."""
+    if not TELEGRAM_ENABLED or TELEGRAM_BOT_TOKEN == "YOUR_BOT_TOKEN_HERE" or TELEGRAM_CHAT_ID == "YOUR_CHAT_ID_HERE":
+        return
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        data = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
-        requests.post(url, data=data, timeout=10)
+        data = urllib.parse.urlencode({
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": message,
+            "parse_mode": "HTML",
+        }).encode()
+        req = urllib.request.Request(url, data=data, method="POST")
+        urllib.request.urlopen(req, timeout=10)
     except Exception as e:
-        print(f"[TELEGRAM] Failed to send message: {e}")
-
-# Floating loss alert tracking
-floating_loss_last_level = 0  # Track the last alert level (0 = no alert sent)
-
-# Daily report tracking
-last_daily_report_date = None  # Track the last date we sent the daily report
-
-def check_floating_loss_alert(account_id: str):
-    """Check if floating loss has crossed a $50 threshold and send alert."""
-    global floating_loss_last_level
-    try:
-        info = mt5.account_info()
-        if not info:
-            return
-        
-        equity = info.equity
-        balance = info.balance
-        floating_pl = equity - balance
-        
-        # Calculate current level (every $50 of loss)
-        if floating_pl >= 0:
-            # No loss, reset level
-            floating_loss_last_level = 0
-            return
-        
-        current_level = int(abs(floating_pl) / 50)
-        
-        # If we've crossed a new level, send alert
-        if current_level > floating_loss_last_level:
-            floating_loss_last_level = current_level
-            
-            # Get open positions summary
-            positions = mt5.positions_get()
-            pos_count = len(positions) if positions else 0
-            
-            # Build position summary by symbol
-            symbol_counts = {}
-            if positions:
-                for pos in positions:
-                    symbol = pos.symbol
-                    symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
-            
-            position_summary = "\n".join([f"  📌 {sym}: {cnt} position(s)" for sym, cnt in symbol_counts.items()])
-            
-            message = f"""🔴 <b>WARNING: Floating Loss Alert</b>
-━━━━━━━━━━━━━━━━━━
-🏦 Account: {account_id}
-
-💸 Floating Loss: ${floating_pl:.2f}
-📊 Open Positions: {pos_count}
-{position_summary}
-
-⚠️ Please monitor your account!"""
-            
-            send_telegram(message)
-            log("INFO", f"[TELEGRAM] Floating loss alert sent: Level {current_level} (${floating_pl:.2f})", account_id)
-    except Exception as e:
-        log("WARN", f"[TELEGRAM] Failed to check floating loss: {e}", account_id)
-
-def check_daily_report(account_id: str):
-    """Send daily Today's Net report at midnight Cairo time."""
-    global last_daily_report_date
-    try:
-        # Get current Cairo time
-        now = datetime.now(timezone.utc)
-        cairo_now = now + timedelta(hours=2)  # Cairo is UTC+2
-        
-        # Check if it's midnight (00:00 - 00:05 window)
-        if cairo_now.hour == 0 and cairo_now.minute < 5:
-            today_str = cairo_now.strftime("%Y-%m-%d")
-            
-            # Check if we already sent today's report
-            if last_daily_report_date == today_str:
-                return
-            
-            # Calculate Today's Net (closed trades today)
-            cairo_midnight = cairo_now.replace(hour=0, minute=0, second=0, microsecond=0)
-            cairo_midnight_iso = cairo_midnight.strftime("%Y-%m-%dT%H:%M:%S")
-            
-            # Get closed trades today
-            result = supabase.table("trades").select("live_pl").eq("status", "closed").eq("account_id", account_id).gte("closed_at", cairo_midnight_iso).execute()
-            closed_trades = result.data if result.data else []
-            
-            today_net = sum(t.get("live_pl", 0) for t in closed_trades)
-            trade_count = len(closed_trades)
-            
-            # Get current floating P/L
-            info = mt5.account_info()
-            floating_pl = 0
-            balance = 0
-            equity = 0
-            if info:
-                floating_pl = info.equity - info.balance
-                balance = info.balance
-                equity = info.equity
-            
-            message = f"""📊 <b>Daily Report - {today_str}</b>
-━━━━━━━━━━━━━━━━━━
-🏦 Account: {account_id}
-
-💰 <b>Today's Net:</b> ${today_net:.2f}
-📈 Closed Trades: {trade_count}
-
-💼 Balance: ${balance:.2f}
-💎 Equity: ${equity:.2f}
-📊 Floating P/L: ${floating_pl:.2f}
-
-━━━━━━━━━━━━━━━━━━
-🤖 MOKABot Auto-Report"""
-            
-            send_telegram(message)
-            last_daily_report_date = today_str
-            log("INFO", f"[TELEGRAM] Daily report sent: Today's Net ${today_net:.2f}", account_id)
-    except Exception as e:
-        log("WARN", f"[TELEGRAM] Failed to send daily report: {e}", account_id)
+        print(f"[TELEGRAM] Failed to send: {e}")
 
 # ============================================
 # CONNECTION TIMEOUT & FAILURE TRACKING
@@ -957,12 +853,25 @@ def close_position(pos, account_id: str):
         
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
             log("INFO", f"[CLOSED] Ticket {pos.ticket} {pos.symbol} {pos.volume} lots | P/L: ${pos.profit:.2f}", account_id)
+            direction = "SELL" if pos.type == mt5.POSITION_TYPE_BUY else "BUY"
+            emoji = "🟢" if pos.profit >= 0 else "🔴"
+            send_telegram(
+                f"{emoji} <b>TRADE CLOSED</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"📊 Symbol: <b>{pos.symbol}</b>\n"
+                f"📌 Direction: <b>{direction}</b>\n"
+                f"💰 Lot Size: <b>{pos.volume}</b>\n"
+                f"💵 P/L: <b>${pos.profit:.2f}</b>\n"
+                f"🆔 Ticket: <code>{pos.ticket}</code>\n"
+                f"🏦 Account: <code>{account_id}</code>"
+            )
             # Update DB
             try:
                 supabase.table("trades").update({
                     "status": "closed",
                     "close_reason": "basket_tp",
-                    "closed_at": datetime.now(timezone.utc).isoformat()
+                    "closed_at": datetime.now(timezone.utc).isoformat(),
+                    "profit_at_close": pos.profit + pos.swap
                 }).eq("ticket", str(pos.ticket)).execute()
             except Exception:
                 pass
@@ -1017,6 +926,16 @@ def execute_trade(symbol: str, order_type: str, lot_size: float, account_id: str
         
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
             log("INFO", f"[TRADE OPENED] {order_type} {symbol} {lot_size} lots @ {price} | Order: {result.order}", account_id)
+            send_telegram(
+                f"🟢 <b>TRADE OPENED</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"📊 Symbol: <b>{symbol}</b>\n"
+                f"📌 Direction: <b>{order_type}</b>\n"
+                f"💰 Lot Size: <b>{lot_size}</b>\n"
+                f"📈 Price: <b>{price}</b>\n"
+                f"🆔 Order: <code>{result.order}</code>\n"
+                f"🏦 Account: <code>{account_id}</code>"
+            )
             return True
         else:
             error = result.comment if result else "No result"
@@ -1025,6 +944,127 @@ def execute_trade(symbol: str, order_type: str, lot_size: float, account_id: str
     except Exception as e:
         log("ERROR", f"Exception executing trade: {e}", account_id)
         return False
+
+# Track last hourly report time to avoid duplicate sends
+last_hourly_report_hour = None
+
+# Track floating loss alert (avoid spamming)
+FLOATING_LOSS_STEP = 50.0  # Alert every $50 of loss
+last_loss_alert_level = 0  # Last threshold level we alerted at (0 = no alert yet)
+
+def check_floating_loss(account_id: str):
+    """Send Telegram alert every time floating loss crosses a new $50 level."""
+    global last_loss_alert_level
+    
+    try:
+        positions = mt5.positions_get() or []
+        if not positions:
+            # No positions = no floating loss, reset
+            last_loss_alert_level = 0
+            return
+        
+        total_pl = sum(p.profit + p.swap for p in positions)
+        
+        if total_pl < 0:
+            # Calculate current loss level (e.g. -152 -> level 3 = $150)
+            current_level = int(abs(total_pl) // FLOATING_LOSS_STEP)
+            
+            if current_level > last_loss_alert_level:
+                # Count positions per symbol
+                symbols = {}
+                for p in positions:
+                    symbols[p.symbol] = symbols.get(p.symbol, 0) + 1
+                
+                positions_info = "\n".join(
+                    f"  📌 {sym}: {cnt} position(s)"
+                    for sym, cnt in symbols.items()
+                )
+                
+                send_telegram(
+                    f"🔴 <b>WARNING: Floating Loss Alert</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🏦 Account: <code>{account_id}</code>\n"
+                    f"💸 <b>Floating Loss:</b> ${total_pl:.2f}\n"
+                    f"📊 <b>Open Positions:</b> {len(positions)}\n"
+                    f"{positions_info}\n"
+                    f"\n"
+                    f"⚠️ Please monitor your account!"
+                )
+                last_loss_alert_level = current_level
+                log("WARN", f"Floating loss alert sent: ${total_pl:.2f} (level {current_level})", account_id)
+        else:
+            # Profit is positive, reset alert level
+            last_loss_alert_level = 0
+    
+    except Exception as e:
+        log("ERROR", f"Failed to check floating loss: {e}", account_id)
+
+def send_hourly_report(account_id: str, user_id: str):
+    """Send hourly Telegram report with balance, open positions, and daily profit."""
+    global last_hourly_report_hour
+    
+    current_hour = datetime.now(timezone.utc).strftime("%Y-%m-%d %H")
+    if current_hour == last_hourly_report_hour:
+        return  # Already sent this hour
+    
+    try:
+        info = mt5.account_info()
+        if not info:
+            return
+        
+        positions = mt5.positions_get() or []
+        open_positions_count = len(positions)
+        total_open_profit = sum(p.profit + p.swap for p in positions)
+        
+        # Calculate daily profit from closed trades today
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        daily_profit = 0.0
+        try:
+            closed_today = supabase.table("trades").select("profit_at_close").eq("account_id", account_id).eq("status", "closed").gte("closed_at", today_start).execute()
+            if closed_today.data:
+                daily_profit = sum(t.get('profit_at_close', 0) or 0 for t in closed_today.data)
+        except Exception:
+            pass
+        
+        # Build report message
+        now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
+        balance = info.balance
+        equity = info.equity
+        margin = info.margin
+        free_margin = info.margin_free
+        
+        # Determine status emoji
+        if total_open_profit >= 0:
+            profit_emoji = "🟢"
+        else:
+            profit_emoji = "🔴"
+        
+        if daily_profit >= 0:
+            daily_emoji = "🟢"
+        else:
+            daily_emoji = "🔴"
+        
+        message = (
+            f"📊 <b>Hourly Report</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🕐 Time: <b>{now_str}</b>\n"
+            f"🏦 Account: <code>{account_id}</code>\n"
+            f"\n"
+            f"💰 <b>Balance:</b> ${balance:.2f}\n"
+            f"💎 <b>Equity:</b> ${equity:.2f}\n"
+            f"📌 <b>Open Positions:</b> {open_positions_count}\n"
+            f"{profit_emoji} <b>Open P/L:</b> ${total_open_profit:.2f}\n"
+            f"{daily_emoji} <b>Daily Profit:</b> ${daily_profit:.2f}\n"
+            f"\n"
+            f"💵 <b>Free Margin:</b> ${free_margin:.2f}"
+        )
+        
+        send_telegram(message)
+        last_hourly_report_hour = current_hour
+        log("INFO", f"Hourly report sent via Telegram", account_id)
+        
+    except Exception as e:
+        log("ERROR", f"Failed to send hourly report: {e}", account_id)
 
 def send_heartbeat(account_id: str, user_id: str):
     """Send heartbeat to database."""
@@ -1456,6 +1496,12 @@ def process_account(account: Dict, safety_engines: Dict[str, SafetyEngine]) -> b
     sync_account_trades(user_id, account_id)
     send_heartbeat(account_id, user_id)
     
+    # Send hourly Telegram report (once per hour)
+    send_hourly_report(account_id, user_id)
+    
+    # Check floating loss and alert if needed
+    check_floating_loss(account_id)
+    
     # === BASKET TP CHECK (Per Symbol) ===
     # Note: Basket TP is now handled inside process_all_symbols
     
@@ -1487,10 +1533,6 @@ def process_account(account: Dict, safety_engines: Dict[str, SafetyEngine]) -> b
             
             # Process all symbols with grid trading logic
             process_all_symbols(account_id, tactics_settings)
-            
-            # Check Telegram notifications (floating loss & daily report)
-            check_floating_loss_alert(account_id)
-            check_daily_report(account_id)
         else:
             log("WARN", f"Bot BLOCKED by safety: {reason}", account_id)
     else:

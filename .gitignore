@@ -42,3 +42,13 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# python
+__pycache__/
+*.pyc
+
+# qoder
+.qoder/
+
+# vercel tmp
+.vercel-tmp/
