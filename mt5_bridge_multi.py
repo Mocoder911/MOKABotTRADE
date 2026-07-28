@@ -14,6 +14,7 @@ import os
 import sys
 import time
 import json
+import requests
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional, List
 
@@ -31,6 +32,136 @@ SUPABASE_URL = "https://lakbvdmjtoarmxmzvynu.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxha2J2ZG1qdG9hcm14bXp2eW51Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjkwMzA2NywiZXhwIjoyMDk4NDc5MDY3fQ.Y92Hm4kDpOVlOFZsRUkqlbuk3P4z7m-e3DARjtoqtvE"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ============================================
+# TELEGRAM CONFIGURATION
+# ============================================
+TELEGRAM_BOT_TOKEN = "8676258690:AAEJafRn1ks4tJ_jvnDNQf8FEq3fLnIVHMo"
+TELEGRAM_CHAT_ID = 8449825809
+
+def send_telegram(message: str):
+    """Send a message to Telegram."""
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        data = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
+        requests.post(url, data=data, timeout=10)
+    except Exception as e:
+        print(f"[TELEGRAM] Failed to send message: {e}")
+
+# Floating loss alert tracking
+floating_loss_last_level = 0  # Track the last alert level (0 = no alert sent)
+
+# Daily report tracking
+last_daily_report_date = None  # Track the last date we sent the daily report
+
+def check_floating_loss_alert(account_id: str):
+    """Check if floating loss has crossed a $50 threshold and send alert."""
+    global floating_loss_last_level
+    try:
+        info = mt5.account_info()
+        if not info:
+            return
+        
+        equity = info.equity
+        balance = info.balance
+        floating_pl = equity - balance
+        
+        # Calculate current level (every $50 of loss)
+        if floating_pl >= 0:
+            # No loss, reset level
+            floating_loss_last_level = 0
+            return
+        
+        current_level = int(abs(floating_pl) / 50)
+        
+        # If we've crossed a new level, send alert
+        if current_level > floating_loss_last_level:
+            floating_loss_last_level = current_level
+            
+            # Get open positions summary
+            positions = mt5.positions_get()
+            pos_count = len(positions) if positions else 0
+            
+            # Build position summary by symbol
+            symbol_counts = {}
+            if positions:
+                for pos in positions:
+                    symbol = pos.symbol
+                    symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
+            
+            position_summary = "\n".join([f"  📌 {sym}: {cnt} position(s)" for sym, cnt in symbol_counts.items()])
+            
+            message = f"""🔴 <b>WARNING: Floating Loss Alert</b>
+━━━━━━━━━━━━━━━━━━
+🏦 Account: {account_id}
+
+💸 Floating Loss: ${floating_pl:.2f}
+📊 Open Positions: {pos_count}
+{position_summary}
+
+⚠️ Please monitor your account!"""
+            
+            send_telegram(message)
+            log("INFO", f"[TELEGRAM] Floating loss alert sent: Level {current_level} (${floating_pl:.2f})", account_id)
+    except Exception as e:
+        log("WARN", f"[TELEGRAM] Failed to check floating loss: {e}", account_id)
+
+def check_daily_report(account_id: str):
+    """Send daily Today's Net report at midnight Cairo time."""
+    global last_daily_report_date
+    try:
+        # Get current Cairo time
+        now = datetime.now(timezone.utc)
+        cairo_now = now + timedelta(hours=2)  # Cairo is UTC+2
+        
+        # Check if it's midnight (00:00 - 00:05 window)
+        if cairo_now.hour == 0 and cairo_now.minute < 5:
+            today_str = cairo_now.strftime("%Y-%m-%d")
+            
+            # Check if we already sent today's report
+            if last_daily_report_date == today_str:
+                return
+            
+            # Calculate Today's Net (closed trades today)
+            cairo_midnight = cairo_now.replace(hour=0, minute=0, second=0, microsecond=0)
+            cairo_midnight_iso = cairo_midnight.strftime("%Y-%m-%dT%H:%M:%S")
+            
+            # Get closed trades today
+            result = supabase.table("trades").select("live_pl").eq("status", "closed").eq("account_id", account_id).gte("closed_at", cairo_midnight_iso).execute()
+            closed_trades = result.data if result.data else []
+            
+            today_net = sum(t.get("live_pl", 0) for t in closed_trades)
+            trade_count = len(closed_trades)
+            
+            # Get current floating P/L
+            info = mt5.account_info()
+            floating_pl = 0
+            balance = 0
+            equity = 0
+            if info:
+                floating_pl = info.equity - info.balance
+                balance = info.balance
+                equity = info.equity
+            
+            message = f"""📊 <b>Daily Report - {today_str}</b>
+━━━━━━━━━━━━━━━━━━
+🏦 Account: {account_id}
+
+💰 <b>Today's Net:</b> ${today_net:.2f}
+📈 Closed Trades: {trade_count}
+
+💼 Balance: ${balance:.2f}
+💎 Equity: ${equity:.2f}
+📊 Floating P/L: ${floating_pl:.2f}
+
+━━━━━━━━━━━━━━━━━━
+🤖 MOKABot Auto-Report"""
+            
+            send_telegram(message)
+            last_daily_report_date = today_str
+            log("INFO", f"[TELEGRAM] Daily report sent: Today's Net ${today_net:.2f}", account_id)
+    except Exception as e:
+        log("WARN", f"[TELEGRAM] Failed to send daily report: {e}", account_id)
 
 # ============================================
 # CONNECTION TIMEOUT & FAILURE TRACKING
@@ -1356,6 +1487,10 @@ def process_account(account: Dict, safety_engines: Dict[str, SafetyEngine]) -> b
             
             # Process all symbols with grid trading logic
             process_all_symbols(account_id, tactics_settings)
+            
+            # Check Telegram notifications (floating loss & daily report)
+            check_floating_loss_alert(account_id)
+            check_daily_report(account_id)
         else:
             log("WARN", f"Bot BLOCKED by safety: {reason}", account_id)
     else:
