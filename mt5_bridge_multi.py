@@ -622,10 +622,12 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
         today_start_timestamp = int(today_start_server.timestamp())
         
         # Get ALL deals from MT5 history since today's start (server time)
+        # Note: group parameter is for symbol filtering, not account filtering
+        # Since bridge runs for specific account, all deals are for that account
         from_date = datetime.fromtimestamp(today_start_timestamp, tz=timezone.utc)
         to_date = server_datetime
         
-        deals = mt5.history_deals_get(from_date, to_date, group=account_id)
+        deals = mt5.history_deals_get(from_date, to_date)
         if deals is None:
             log("DEBUG", f"No history deals found for today (server time: {server_datetime.isoformat()})", account_id)
             return
