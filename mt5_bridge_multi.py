@@ -534,7 +534,7 @@ def sync_account_balance(user_id: str, account_id: str):
         log("ERROR", f"Balance sync failed: {e}", account_id)
 
 def sync_account_trades(user_id: str, account_id: str):
-    """Sync trades for current connected account with ghost trade cleanup."""
+    """Sync trades for current connected account with ghost trade cleanup and history sync."""
     # Force refresh rates from MT5
     mt5.symbol_info("XAUUSD")  # Trigger refresh
     
@@ -597,8 +597,97 @@ def sync_account_trades(user_id: str, account_id: str):
         except Exception as e:
             log("ERROR", f"Ticket {ticket} sync failed: {e}", account_id)
     
+    # CRITICAL: Sync closed trades from MT5 history for Today's Net accuracy
+    sync_closed_trades_from_history(account_id, user_id)
+    
     # Summary
     log("INFO", f"Sync complete: {len(positions)} active, {len(ghost_tickets)} ghosts cleaned", account_id)
+
+def sync_closed_trades_from_history(account_id: str, user_id: str):
+    """
+    CRITICAL: Sync closed trades from MT5 history to Supabase.
+    This ensures Today's Net matches MT5 History tab exactly.
+    Uses MT5 server time to determine 'today'.
+    """
+    try:
+        # Get MT5 server time (not local time)
+        server_time = mt5.server_time()
+        if not server_time:
+            log("WARN", "Failed to get MT5 server time", account_id)
+            return
+        
+        # Calculate today's start in server time (00:00:00 server time)
+        server_datetime = datetime.fromtimestamp(server_time.time, tz=timezone.utc)
+        today_start_server = server_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start_timestamp = int(today_start_server.timestamp())
+        
+        # Get closed deals from MT5 history since today's start (server time)
+        from_date = datetime.fromtimestamp(today_start_timestamp, tz=timezone.utc)
+        to_date = server_datetime
+        
+        deals = mt5.history_deals_get(from_date, to_date, group=account_id)
+        if deals is None:
+            log("DEBUG", f"No history deals found for today (server time: {server_datetime.isoformat()})", account_id)
+            return
+        
+        # Filter to only OUT deals (closed trades)
+        closed_deals = [d for d in deals if d.entry == mt5.DEAL_ENTRY_OUT or d.entry == mt5.DEAL_ENTRY_OUT_CLOSE]
+        
+        if not closed_deals:
+            log("DEBUG", "No closed deals today", account_id)
+            return
+        
+        log("INFO", f"Found {len(closed_deals)} closed deals today (server time)", account_id)
+        
+        # Sync each closed deal to Supabase
+        for deal in closed_deals:
+            ticket = str(deal.order)
+            try:
+                # Check if this deal is already in DB
+                existing = supabase.table("trades").select("ticket").eq("ticket", ticket).eq("status", "closed").execute()
+                if existing.data:
+                    continue  # Already synced
+                
+                # Get the original open deal to find the position
+                open_deals = mt5.history_deals_get(deal.position_id, deal.position_id)
+                if not open_deals:
+                    continue
+                
+                open_deal = next((d for d in open_deals if d.entry == mt5.DEAL_ENTRY_IN), None)
+                if not open_deal:
+                    continue
+                
+                # Calculate profit including swap and commission
+                profit = deal.profit + deal.swap + deal.commission
+                
+                # Sync to Supabase
+                supabase.table("trades").upsert({
+                    "ticket": ticket,
+                    "account_id": account_id,
+                    "user_id": user_id,
+                    "symbol": deal.symbol,
+                    "type": "BUY" if deal.type == mt5.DEAL_TYPE_BUY else "SELL",
+                    "volume": deal.volume,
+                    "entry": open_deal.price,
+                    "exit": deal.price,
+                    "sl": None,
+                    "tp": None,
+                    "live_pl": profit,  # Final P/L for closed trades
+                    "margin": open_deal.margin,
+                    "open_time": datetime.fromtimestamp(open_deal.time, tz=timezone.utc).isoformat(),
+                    "closed_at": datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),
+                    "status": "closed",
+                    "close_reason": "basket_tp" if deal.comment == "Basket TP closed" else "manual"
+                }, on_conflict="ticket").execute()
+                
+                log("DEBUG", f"Synced closed deal {ticket}: {deal.symbol} | P/L: ${profit:.2f}", account_id)
+            except Exception as e:
+                log("ERROR", f"Failed to sync deal {ticket}: {e}", account_id)
+        
+        log("INFO", f"History sync complete: {len(closed_deals)} deals processed", account_id)
+        
+    except Exception as e:
+        log("ERROR", f"Failed to sync history deals: {e}", account_id)
 
 # ============================================
 # BASKET TP PER SYMBOL
