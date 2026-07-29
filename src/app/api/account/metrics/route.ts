@@ -55,12 +55,11 @@ export async function GET(request: NextRequest) {
         .select("balance, equity")
         .eq("user_id", userId)
         .maybeSingle(),
-      // 3. Closed trades today
+      // 3. ALL deals today (trades + balance changes + cash adjustments)
       (() => {
         let q = supabase
           .from("trades")
-          .select("live_pl, closed_at, ticket, symbol")
-          .eq("status", "closed")
+          .select("live_pl, closed_at, ticket, symbol, status")
           .gte("closed_at", todayISO);
         if (profile.mt5_account_id) {
           q = q.eq("account_id", profile.mt5_account_id);
