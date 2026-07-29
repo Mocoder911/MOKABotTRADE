@@ -33,12 +33,11 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Calculate Egypt midnight for today's net
+    // Calculate UTC midnight for today's net (bridge saves closed_at in UTC)
     const now = new Date();
-    const egyptNow = new Date(now.toLocaleString("en-US", { timeZone: "Africa/Cairo" }));
-    const egyptMidnight = new Date(egyptNow);
-    egyptMidnight.setHours(0, 0, 0, 0);
-    const todayISO = egyptMidnight.toISOString();
+    const utcMidnight = new Date(now);
+    utcMidnight.setUTCHours(0, 0, 0, 0);
+    const todayISO = utcMidnight.toISOString();
 
     // Run all 3 queries in parallel for faster response
     const [tradesResult, accountResult, closedResult] = await Promise.all([
