@@ -607,30 +607,22 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
     """
     CRITICAL: Sync ALL deals from MT5 history to Supabase (trades + balance changes).
     This ensures Today's Net matches MT5 History tab exactly.
-    Uses MT5 server time to determine 'today'.
+    Uses UTC time (VPS time should be synced with MT5 server).
     """
     log("DEBUG", "=== sync_closed_trades_from_history CALLED ===", account_id)
     try:
-        # Get MT5 server time (not local time)
-        server_time = mt5.server_time()
-        if not server_time:
-            log("WARN", "Failed to get MT5 server time", account_id)
-            return
+        # Use UTC time (VPS should be synced with MT5 server time)
+        # MT5 Python API doesn't have server_time() function
+        now_utc = datetime.now(timezone.utc)
+        today_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
         
-        log("DEBUG", f"Server time retrieved: {server_time.time}", account_id)
+        log("DEBUG", f"Now UTC: {now_utc.isoformat()}, Today start: {today_start_utc.isoformat()}", account_id)
         
-        # Calculate today's start in server time (00:00:00 server time)
-        server_datetime = datetime.fromtimestamp(server_time.time, tz=timezone.utc)
-        today_start_server = server_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
-        today_start_timestamp = int(today_start_server.timestamp())
-        
-        log("DEBUG", f"Server datetime: {server_datetime.isoformat()}, Today start: {today_start_server.isoformat()}", account_id)
-        
-        # Get ALL deals from MT5 history since today's start (server time)
+        # Get ALL deals from MT5 history since today's start (UTC)
         # Note: group parameter is for symbol filtering, not account filtering
         # Since bridge runs for specific account, all deals are for that account
-        from_date = datetime.fromtimestamp(today_start_timestamp, tz=timezone.utc)
-        to_date = server_datetime
+        from_date = today_start_utc
+        to_date = now_utc
         
         log("DEBUG", f"Fetching deals from {from_date.isoformat()} to {to_date.isoformat()}", account_id)
         
@@ -638,7 +630,7 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
         log("DEBUG", f"history_deals_get returned: {deals is None}, type: {type(deals)}, count: {len(deals) if deals else 0}", account_id)
         
         if deals is None:
-            log("DEBUG", f"No history deals found for today (server time: {server_datetime.isoformat()})", account_id)
+            log("DEBUG", f"No history deals found for today (UTC: {now_utc.isoformat()})", account_id)
             return
         
         # Include ALL deals (trades + balance changes + cash adjustments)
@@ -648,7 +640,7 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
             log("DEBUG", "No deals today", account_id)
             return
         
-        log("INFO", f"Found {len(all_deals)} total deals today (server time)", account_id)
+        log("INFO", f"Found {len(all_deals)} total deals today (UTC)", account_id)
         
         # Sync each deal to Supabase
         for deal in all_deals:
