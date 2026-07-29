@@ -609,6 +609,7 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
     This ensures Today's Net matches MT5 History tab exactly.
     Uses MT5 server time to determine 'today'.
     """
+    log("DEBUG", "=== sync_closed_trades_from_history CALLED ===", account_id)
     try:
         # Get MT5 server time (not local time)
         server_time = mt5.server_time()
@@ -616,10 +617,14 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
             log("WARN", "Failed to get MT5 server time", account_id)
             return
         
+        log("DEBUG", f"Server time retrieved: {server_time.time}", account_id)
+        
         # Calculate today's start in server time (00:00:00 server time)
         server_datetime = datetime.fromtimestamp(server_time.time, tz=timezone.utc)
         today_start_server = server_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
         today_start_timestamp = int(today_start_server.timestamp())
+        
+        log("DEBUG", f"Server datetime: {server_datetime.isoformat()}, Today start: {today_start_server.isoformat()}", account_id)
         
         # Get ALL deals from MT5 history since today's start (server time)
         # Note: group parameter is for symbol filtering, not account filtering
@@ -627,7 +632,11 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
         from_date = datetime.fromtimestamp(today_start_timestamp, tz=timezone.utc)
         to_date = server_datetime
         
+        log("DEBUG", f"Fetching deals from {from_date.isoformat()} to {to_date.isoformat()}", account_id)
+        
         deals = mt5.history_deals_get(from_date, to_date)
+        log("DEBUG", f"history_deals_get returned: {deals is None}, type: {type(deals)}, count: {len(deals) if deals else 0}", account_id)
+        
         if deals is None:
             log("DEBUG", f"No history deals found for today (server time: {server_datetime.isoformat()})", account_id)
             return
