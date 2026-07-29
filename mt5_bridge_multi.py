@@ -677,7 +677,6 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
                     "type": "BUY" if deal.type == mt5.DEAL_TYPE_BUY else "SELL",
                     "volume": deal.volume if deal.volume > 0 else 0,
                     "entry": deal.price,
-                    "exit": deal.price,
                     "sl": None,
                     "tp": None,
                     "live_pl": profit,  # Profit for this deal
