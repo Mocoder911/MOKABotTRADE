@@ -94,6 +94,7 @@ export async function GET(request: NextRequest) {
     // Debug: log what we counted
     console.log("[todayNet] now=", now.toISOString(), "today=", todayISO);
     console.log("[todayNet] closed count=", closedTradesToday?.length ?? 0, "profit=", todayNetProfit);
+    console.log("[todayNet] sample deals:", JSON.stringify(closedTradesToday?.slice(0, 3) ?? [], null, 2));
     console.log("[todayNet] total=", todayNetProfit);
 
     return NextResponse.json(
