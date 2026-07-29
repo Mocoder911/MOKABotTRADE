@@ -681,7 +681,7 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
                     "sl": None,
                     "tp": None,
                     "live_pl": profit,  # Profit for this deal
-                    "margin": deal.margin if deal.margin > 0 else 0,
+                    "margin": 0,  # TradeDeal doesn't have margin attribute
                     "open_time": datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),
                     "closed_at": datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),
                     "status": status,
