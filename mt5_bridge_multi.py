@@ -607,16 +607,21 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
     """
     CRITICAL: Sync ALL deals from MT5 history to Supabase (trades + balance changes).
     This ensures Today's Net matches MT5 History tab exactly.
-    Uses UTC time (VPS time should be synced with MT5 server).
+    Uses Egypt time (UTC+2) for daily boundary (12 AM Cairo).
     """
     log("DEBUG", "=== sync_closed_trades_from_history CALLED ===", account_id)
     try:
-        # Use UTC time (VPS should be synced with MT5 server time)
-        # MT5 Python API doesn't have server_time() function
+        # Use Egypt time (UTC+2) for daily boundary
+        # Egypt midnight (12 AM Cairo) = 10 PM UTC previous day
         now_utc = datetime.now(timezone.utc)
-        today_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+        egypt_offset = timedelta(hours=2)
+        now_egypt = now_utc + egypt_offset
+        # Egypt midnight: 12 AM today Egypt time
+        today_start_egypt = now_egypt.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Convert back to UTC for MT5 API
+        today_start_utc = today_start_egypt - egypt_offset
         
-        log("DEBUG", f"Now UTC: {now_utc.isoformat()}, Today start: {today_start_utc.isoformat()}", account_id)
+        log("DEBUG", f"Now UTC: {now_utc.isoformat()}, Egypt midnight (UTC): {today_start_utc.isoformat()}", account_id)
         
         # Get ALL deals from MT5 history since today's start (UTC)
         # Note: group parameter is for symbol filtering, not account filtering
