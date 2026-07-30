@@ -35,11 +35,14 @@ export async function GET(request: NextRequest) {
 
     // Calculate Egypt midnight for today's net (reset at 12 AM Cairo time)
     const now = new Date();
-    const egyptNow = new Date(now.toLocaleString("en-US", { timeZone: "Africa/Cairo" }));
+    // Get current time in Egypt (UTC+2)
+    const egyptOffset = 2 * 60; // 2 hours in minutes
+    const egyptNow = new Date(now.getTime() + egyptOffset * 60 * 1000);
+    // Set to midnight Egypt time (00:00:00.000)
     const egyptMidnight = new Date(egyptNow);
-    egyptMidnight.setHours(0, 0, 0, 0);
-    // Convert Egypt midnight to UTC for Supabase query (bridge saves closed_at in UTC)
-    const todayISO = egyptMidnight.toISOString();
+    egyptMidnight.setUTCHours(egyptNow.getUTCHours() - egyptNow.getUTCHours(), 0, 0, 0);
+    // Convert back to UTC for Supabase query
+    const todayISO = new Date(egyptMidnight.getTime() - egyptOffset * 60 * 1000).toISOString();
 
     // Run all 3 queries in parallel for faster response
     const [tradesResult, accountResult, closedResult] = await Promise.all([
