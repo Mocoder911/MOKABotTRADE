@@ -34,15 +34,16 @@ export async function GET(request: NextRequest) {
     }
 
     // Calculate Egypt midnight for today's net (reset at 12 AM Cairo time)
-    // Egypt is UTC+2, so Egypt midnight = 10 PM UTC previous day
+    // Bridge saves closed_at in Egypt time (UTC+2), so query in Egypt time
     const now = new Date();
-    const nowUTC = now.getTime();
-    // Calculate hours since Egypt midnight (12 AM Egypt = 10 PM UTC)
-    const hoursSinceUTCMidnight = now.getUTCHours();
-    const hoursSinceEgyptMidnight = (hoursSinceUTCMidnight + 22) % 24; // 22 = 24 - 2
-    // Egypt midnight in UTC milliseconds
-    const egyptMidnightMS = nowUTC - (hoursSinceEgyptMidnight * 60 * 60 * 1000) - (now.getUTCMinutes() * 60 * 1000) - (now.getUTCSeconds() * 1000) - now.getUTCMilliseconds();
-    const todayISO = new Date(egyptMidnightMS).toISOString();
+    // Get current time in Egypt (UTC+2)
+    const egyptOffset = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
+    const egyptNow = new Date(now.getTime() + egyptOffset);
+    // Set to midnight Egypt time (00:00:00.000)
+    const egyptMidnight = new Date(egyptNow);
+    egyptMidnight.setUTCHours(egyptNow.getUTCHours() - egyptNow.getUTCHours(), 0, 0, 0);
+    // Keep in Egypt time (don't convert back to UTC)
+    const todayISO = egyptMidnight.toISOString().replace('Z', '+02:00');
 
     // Run all 3 queries in parallel for faster response
     const [tradesResult, accountResult, closedResult] = await Promise.all([
