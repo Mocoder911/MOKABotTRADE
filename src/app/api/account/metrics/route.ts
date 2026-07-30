@@ -33,17 +33,16 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Calculate Egypt midnight for today's net (reset at 12 AM Cairo time)
-    // Bridge saves closed_at in Egypt time (UTC+2), so query in Egypt time
+    // Calculate Egypt midnight in UTC for today's net (reset at 12 AM Cairo time)
+    // Egypt midnight (12 AM Cairo) = 10 PM UTC previous day
     const now = new Date();
-    // Get current time in Egypt (UTC+2)
-    const egyptOffset = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
-    const egyptNow = new Date(now.getTime() + egyptOffset);
-    // Set to midnight Egypt time (00:00:00.000)
-    const egyptMidnight = new Date(egyptNow);
-    egyptMidnight.setUTCHours(egyptNow.getUTCHours() - egyptNow.getUTCHours(), 0, 0, 0);
-    // Keep in Egypt time (don't convert back to UTC)
-    const todayISO = egyptMidnight.toISOString().replace('Z', '+02:00');
+    const utcHours = now.getUTCHours();
+    // Hours since Egypt midnight (10 PM UTC)
+    const hoursSinceEgyptMidnight = (utcHours + 22) % 24; // 22 = 24 - 2
+    // Egypt midnight in UTC
+    const egyptMidnightUTC = new Date(now);
+    egyptMidnightUTC.setUTCHours(utcHours - hoursSinceEgyptMidnight, 0, 0, 0);
+    const todayISO = egyptMidnightUTC.toISOString();
 
     // Run all 3 queries in parallel for faster response
     const [tradesResult, accountResult, closedResult] = await Promise.all([
@@ -63,8 +62,8 @@ export async function GET(request: NextRequest) {
       // 3. Only CLOSED deals today (trades only, not open positions or balance changes)
       (() => {
         // Calculate Egypt midnight + 24 hours for upper bound
-        const egyptTomorrow = new Date(egyptMidnight.getTime() + 24 * 60 * 60 * 1000);
-        const tomorrowISO = egyptTomorrow.toISOString().replace('Z', '+02:00');
+        const egyptTomorrowUTC = new Date(egyptMidnightUTC.getTime() + 24 * 60 * 60 * 1000);
+        const tomorrowISO = egyptTomorrowUTC.toISOString();
         
         let q = supabase
           .from("trades")
