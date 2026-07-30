@@ -34,11 +34,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Calculate Egypt midnight in UTC for today's net (reset at 12 AM Cairo time)
-    // Egypt midnight (12 AM Cairo) = 10 PM UTC previous day
+    // Egypt midnight (12 AM Cairo) = 10 PM UTC previous day (22:00 UTC)
     const now = new Date();
     const utcHours = now.getUTCHours();
-    // Hours since Egypt midnight (10 PM UTC)
-    const hoursSinceEgyptMidnight = (utcHours + 22) % 24; // 22 = 24 - 2
+    // Hours since Egypt midnight (22:00 UTC)
+    const hoursSinceEgyptMidnight = (utcHours - 22 + 24) % 24;
     // Egypt midnight in UTC
     const egyptMidnightUTC = new Date(now);
     egyptMidnightUTC.setUTCHours(utcHours - hoursSinceEgyptMidnight, 0, 0, 0);
