@@ -33,16 +33,10 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Calculate Egypt midnight for today's net (reset at 12 AM Cairo time)
+    // Calculate 24 hours ago for today's net (match MT5 History tab)
     const now = new Date();
-    // Get current time in Egypt (UTC+2)
-    const egyptOffset = 2 * 60; // 2 hours in minutes
-    const egyptNow = new Date(now.getTime() + egyptOffset * 60 * 1000);
-    // Set to midnight Egypt time (00:00:00.000)
-    const egyptMidnight = new Date(egyptNow);
-    egyptMidnight.setUTCHours(egyptNow.getUTCHours() - egyptNow.getUTCHours(), 0, 0, 0);
-    // Convert back to UTC for Supabase query
-    const todayISO = new Date(egyptMidnight.getTime() - egyptOffset * 60 * 1000).toISOString();
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const todayISO = twentyFourHoursAgo.toISOString();
 
     // Run all 3 queries in parallel for faster response
     const [tradesResult, accountResult, closedResult] = await Promise.all([
