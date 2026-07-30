@@ -608,6 +608,7 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
     CRITICAL: Sync ALL deals from MT5 history to Supabase (trades + balance changes).
     This ensures Today's Net matches MT5 History tab exactly.
     Uses Egypt time (UTC+2) for daily boundary (12 AM Cairo).
+    Also calculates and stores Today's Net directly in today_net table.
     """
     log("DEBUG", "=== sync_closed_trades_from_history CALLED ===", account_id)
     try:
@@ -636,6 +637,14 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
         
         if deals is None:
             log("DEBUG", f"No history deals found for today (UTC: {now_utc.isoformat()})", account_id)
+            # Store 0 in today_net table
+            supabase.table("today_net").upsert({
+                "user_id": user_id,
+                "account_id": account_id,
+                "net_profit": 0,
+                "calculated_at": now_utc.isoformat(),
+                "date": today_start_egypt.date().isoformat()
+            }, on_conflict="user_id,date").execute()
             return
         
         # Include ALL deals (trades + balance changes + cash adjustments)
@@ -643,9 +652,20 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
         
         if not all_deals:
             log("DEBUG", "No deals today", account_id)
+            # Store 0 in today_net table
+            supabase.table("today_net").upsert({
+                "user_id": user_id,
+                "account_id": account_id,
+                "net_profit": 0,
+                "calculated_at": now_utc.isoformat(),
+                "date": today_start_egypt.date().isoformat()
+            }, on_conflict="user_id,date").execute()
             return
         
         log("INFO", f"Found {len(all_deals)} total deals today (UTC)", account_id)
+        
+        # Calculate Today's Net directly from MT5 deals
+        today_net_profit = 0.0
         
         # Sync each deal to Supabase
         for deal in all_deals:
@@ -658,6 +678,10 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
                 
                 # Calculate profit including swap and commission
                 profit = deal.profit + deal.swap + deal.commission
+                
+                # Add to Today's Net (only for actual trades, not balance changes)
+                if deal.entry in [mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_OUT_CLOSE]:
+                    today_net_profit += profit
                 
                 # Determine deal type
                 if deal.entry == mt5.DEAL_ENTRY_IN:
@@ -696,6 +720,16 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
             except Exception as e:
                 log("ERROR", f"Failed to sync deal {ticket}: {e}", account_id)
         
+        # Store Today's Net in today_net table
+        supabase.table("today_net").upsert({
+            "user_id": user_id,
+            "account_id": account_id,
+            "net_profit": today_net_profit,
+            "calculated_at": now_utc.isoformat(),
+            "date": today_start_egypt.date().isoformat()
+        }, on_conflict="user_id,date").execute()
+        
+        log("INFO", f"Today's Net calculated: ${today_net_profit:.2f} from {len(all_deals)} deals", account_id)
         log("INFO", f"History sync complete: {len(all_deals)} deals processed", account_id)
         
     except Exception as e:
