@@ -62,11 +62,16 @@ export async function GET(request: NextRequest) {
         .maybeSingle(),
       // 3. Only CLOSED deals today (trades only, not open positions or balance changes)
       (() => {
+        // Calculate Egypt midnight + 24 hours for upper bound
+        const egyptTomorrow = new Date(egyptMidnight.getTime() + 24 * 60 * 60 * 1000);
+        const tomorrowISO = egyptTomorrow.toISOString().replace('Z', '+02:00');
+        
         let q = supabase
           .from("trades")
           .select("live_pl, closed_at, ticket, symbol, status")
           .eq("status", "closed")  // Only closed trades
-          .gte("closed_at", todayISO);
+          .gte("closed_at", todayISO)
+          .lt("closed_at", tomorrowISO);  // Upper bound: only deals from today
         if (profile.mt5_account_id) {
           q = q.eq("account_id", profile.mt5_account_id);
         }
