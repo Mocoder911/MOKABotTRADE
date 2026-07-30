@@ -679,9 +679,8 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
                 # Calculate profit including swap and commission
                 profit = deal.profit + deal.swap + deal.commission
                 
-                # Add to Today's Net (only for actual trades, not balance changes)
-                if deal.entry in [mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_OUT_CLOSE]:
-                    today_net_profit += profit
+                # Add to Today's Net (ALL deals - matches MT5 History tab exactly)
+                today_net_profit += profit
                 
                 # Determine deal type
                 if deal.entry == mt5.DEAL_ENTRY_IN:
