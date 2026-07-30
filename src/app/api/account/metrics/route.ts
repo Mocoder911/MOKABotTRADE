@@ -33,19 +33,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Calculate Egypt midnight in UTC for today's net (reset at 12 AM Cairo time)
-    // Egypt midnight (12 AM Cairo) = 10 PM UTC previous day (22:00 UTC)
-    const now = new Date();
-    const utcHours = now.getUTCHours();
-    // Hours since Egypt midnight (22:00 UTC)
-    const hoursSinceEgyptMidnight = (utcHours - 22 + 24) % 24;
-    // Egypt midnight in UTC
-    const egyptMidnightUTC = new Date(now);
-    egyptMidnightUTC.setUTCHours(utcHours - hoursSinceEgyptMidnight, 0, 0, 0);
-    const todayISO = egyptMidnightUTC.toISOString();
-
     // Run all 3 queries in parallel for faster response
-    const [tradesResult, accountResult, closedResult] = await Promise.all([
+    const [tradesResult, accountResult, todayNetResult] = await Promise.all([
       // 1. Open trades
       supabase
         .from("trades")
@@ -59,17 +48,17 @@ export async function GET(request: NextRequest) {
         .select("balance, equity")
         .eq("user_id", userId)
         .maybeSingle(),
-      // 3. Only CLOSED deals today (trades only, not open positions or balance changes)
+      // 3. Today's Net from today_net table (calculated by bridge from MT5 directly)
       (() => {
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
         let q = supabase
-          .from("trades")
-          .select("live_pl, closed_at, ticket, symbol, status")
-          .eq("status", "closed")  // Only closed trades
-          .gte("closed_at", todayISO);
+          .from("today_net")
+          .select("net_profit")
+          .eq("date", today);
         if (profile.mt5_account_id) {
           q = q.eq("account_id", profile.mt5_account_id);
         }
-        return q;
+        return q.maybeSingle();
       })()
     ]);
 
@@ -90,15 +79,12 @@ export async function GET(request: NextRequest) {
     // Calculate equity dynamically: balance + floating P/L (always in sync with live trades)
     const equity = balance + totalPL;
 
-    // Today's net from closed trades
-    const { data: closedTradesToday } = closedResult;
-    const todayNetProfit = closedTradesToday?.reduce((sum, t) => sum + (t.live_pl ?? 0), 0) ?? 0;
+    // Today's net from today_net table (calculated by bridge from MT5 directly)
+    const { data: todayNetData } = todayNetResult;
+    const todayNetProfit = todayNetData?.net_profit ?? 0;
 
     // Debug: log what we counted
-    console.log("[todayNet] now=", now.toISOString(), "today=", todayISO);
-    console.log("[todayNet] closed count=", closedTradesToday?.length ?? 0, "profit=", todayNetProfit);
-    console.log("[todayNet] sample deals:", JSON.stringify(closedTradesToday?.slice(0, 3) ?? [], null, 2));
-    console.log("[todayNet] total=", todayNetProfit);
+    console.log("[todayNet] date=", new Date().toISOString().split('T')[0], "profit=", todayNetProfit);
 
     return NextResponse.json(
       {
