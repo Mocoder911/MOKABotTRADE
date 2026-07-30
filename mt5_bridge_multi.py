@@ -686,8 +686,8 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
                     "tp": None,
                     "live_pl": profit,  # Profit for this deal
                     "margin": 0,  # TradeDeal doesn't have margin attribute
-                    "open_time": datetime.fromtimestamp(deal.time, tz=timezone.utc).astimezone(timezone(timedelta(hours=2))).isoformat(),  # Egypt time (UTC+2)
-                    "closed_at": datetime.fromtimestamp(deal.time, tz=timezone.utc).astimezone(timezone(timedelta(hours=2))).isoformat(),  # Egypt time (UTC+2)
+                    "open_time": datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),  # UTC
+                    "closed_at": datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),  # UTC
                     "status": status,
                     "close_reason": deal.comment if deal.comment else deal_type
                 }, on_conflict="ticket").execute()
