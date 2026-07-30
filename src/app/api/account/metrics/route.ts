@@ -33,10 +33,15 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Calculate 24 hours ago for today's net (match MT5 History tab)
+    // Calculate Egypt midnight for today's net (reset at 12 AM Cairo time)
+    // Use simple UTC offset method (Egypt is UTC+2)
     const now = new Date();
-    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const todayISO = twentyFourHoursAgo.toISOString();
+    const utcHours = now.getUTCHours();
+    const egyptHours = (utcHours + 2) % 24;
+    // Calculate Egypt midnight in UTC
+    const egyptMidnightUTC = new Date(now);
+    egyptMidnightUTC.setUTCHours(utcHours - egyptHours, 0, 0, 0);
+    const todayISO = egyptMidnightUTC.toISOString();
 
     // Run all 3 queries in parallel for faster response
     const [tradesResult, accountResult, closedResult] = await Promise.all([
