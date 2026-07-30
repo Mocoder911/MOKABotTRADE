@@ -664,23 +664,25 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
         
         log("INFO", f"Found {len(all_deals)} total deals today (UTC)", account_id)
         
-        # Calculate Today's Net directly from MT5 deals
+        # Calculate Today's Net directly from MT5 deals (ALL deals, not just new ones)
         today_net_profit = 0.0
         
-        # Sync each deal to Supabase
+        # First, calculate profit for ALL deals
+        for deal in all_deals:
+            profit = deal.profit + deal.swap + deal.commission
+            today_net_profit += profit
+        
+        # Then, sync new deals to Supabase
         for deal in all_deals:
             ticket = str(deal.ticket)
             try:
                 # Check if this deal is already in DB
                 existing = supabase.table("trades").select("ticket").eq("ticket", ticket).execute()
                 if existing.data:
-                    continue  # Already synced
+                    continue  # Already synced, skip sync but profit already counted
                 
                 # Calculate profit including swap and commission
                 profit = deal.profit + deal.swap + deal.commission
-                
-                # Add to Today's Net (ALL deals - matches MT5 History tab exactly)
-                today_net_profit += profit
                 
                 # Determine deal type
                 if deal.entry == mt5.DEAL_ENTRY_IN:
