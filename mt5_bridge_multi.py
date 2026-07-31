@@ -625,62 +625,43 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
     """
     CRITICAL: Sync ALL deals from MT5 history to Supabase (trades + balance changes).
     This ensures Today's Net matches MT5 History tab exactly.
-    Uses Egypt time (UTC+2) for daily boundary (12 AM Cairo).
+    Uses server time midnight as start of day.
     Also calculates and stores Today's Net directly in today_net table.
     """
     log("DEBUG", "=== sync_closed_trades_from_history CALLED ===", account_id)
     try:
-        # Use Egypt time (UTC+2) for daily boundary
-        # Egypt midnight (12 AM Cairo) = 10 PM UTC previous day
+        # Use server time midnight as start of day (matches MT5 History tab exactly)
+        now = datetime.now()
+        today_start = datetime.combine(now.date(), datetime.min.time())
         now_utc = datetime.now(timezone.utc)
-        egypt_offset = timedelta(hours=2)
-        now_egypt = now_utc + egypt_offset
-        # Egypt midnight: 12 AM today Egypt time
-        today_start_egypt = now_egypt.replace(hour=0, minute=0, second=0, microsecond=0)
-        # Convert back to UTC for MT5 API
-        today_start_utc = today_start_egypt - egypt_offset
         
-        log("DEBUG", f"Now UTC: {now_utc.isoformat()}, Egypt midnight (UTC): {today_start_utc.isoformat()}", account_id)
+        log("DEBUG", f"Server time: {now.isoformat()}, Today start: {today_start.isoformat()}", account_id)
         
-        # Get ALL deals from MT5 history since today's start (UTC)
-        # Note: group parameter is for symbol filtering, not account filtering
-        # Since bridge runs for specific account, all deals are for that account
-        from_date = today_start_utc
-        to_date = now_utc
+        # Get deals from MT5 history since midnight (server time)
+        from_date = today_start
+        to_date = now
         
         log("DEBUG", f"Fetching deals from {from_date.isoformat()} to {to_date.isoformat()}", account_id)
         
         deals = mt5.history_deals_get(from_date, to_date)
         log("DEBUG", f"history_deals_get returned: {deals is None}, type: {type(deals)}, count: {len(deals) if deals else 0}", account_id)
         
-        if deals is None:
-            log("DEBUG", f"No history deals found for today (UTC: {now_utc.isoformat()})", account_id)
+        if deals is None or len(deals) == 0:
+            log("DEBUG", f"No history deals found for today", account_id)
             # Store 0 in today_net table
             supabase.table("today_net").upsert({
                 "user_id": user_id,
                 "account_id": account_id,
                 "net_profit": 0,
                 "calculated_at": now_utc.isoformat(),
-                "date": today_start_egypt.date().isoformat()
+                "date": today_start.date().isoformat()
             }, on_conflict="user_id,date").execute()
             return
         
         # Include ALL deals (trades + balance changes + cash adjustments)
         all_deals = list(deals)
         
-        if not all_deals:
-            log("DEBUG", "No deals today", account_id)
-            # Store 0 in today_net table
-            supabase.table("today_net").upsert({
-                "user_id": user_id,
-                "account_id": account_id,
-                "net_profit": 0,
-                "calculated_at": now_utc.isoformat(),
-                "date": today_start_egypt.date().isoformat()
-            }, on_conflict="user_id,date").execute()
-            return
-        
-        log("INFO", f"Found {len(all_deals)} total deals today (UTC)", account_id)
+        log("INFO", f"Found {len(all_deals)} total deals today", account_id)
         
         # Calculate Today's Net directly from MT5 deals (only DEAL_ENTRY_OUT - matches MT5 History tab)
         today_net_profit = 0.0
