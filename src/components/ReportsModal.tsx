@@ -171,12 +171,9 @@ export default function ReportsDropdown() {
       font-weight: bold;
       color: #22d3ee;
     }
-    .mt5-badge {
-      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-      padding: 10px 20px;
-      border-radius: 8px;
-      font-weight: bold;
-      font-size: 18px;
+    .mt5-logo {
+      width: 60px;
+      height: 60px;
     }
     .title {
       text-align: center;
@@ -295,6 +292,7 @@ export default function ReportsDropdown() {
 
   <div class="header">
     <div class="logo-section">
+      <img src="/mokabot-logo.png" alt="MOKABot" style="width: 60px; height: 60px; object-fit: contain;">
       <div class="logo-text">MOKABot</div>
     </div>
     <div class="title">
@@ -302,7 +300,7 @@ export default function ReportsDropdown() {
       <p>Winning Trades Only</p>
     </div>
     <div class="logo-section">
-      <div class="mt5-badge">MetaTrader 5</div>
+      <img src="/mt5-logo.svg" alt="MetaTrader 5" class="mt5-logo">
     </div>
   </div>
 
