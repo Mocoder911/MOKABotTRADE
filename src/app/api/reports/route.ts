@@ -15,6 +15,8 @@ export async function GET(request: NextRequest) {
     }
 
     const period = request.nextUrl.searchParams.get("period") || "daily";
+    const startParam = request.nextUrl.searchParams.get("start");
+    const endParam = request.nextUrl.searchParams.get("end");
 
     // Get user profile
     const { data: profile } = await supabase
@@ -36,6 +38,7 @@ export async function GET(request: NextRequest) {
     // Calculate date range based on period
     const now = new Date();
     let startDate: Date;
+    let endDate: Date = now;
 
     switch (period) {
       case "daily":
@@ -46,6 +49,15 @@ export async function GET(request: NextRequest) {
         break;
       case "monthly":
         startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case "custom":
+        if (startParam && endParam) {
+          startDate = new Date(startParam);
+          endDate = new Date(endParam);
+          endDate.setHours(23, 59, 59, 999); // End of the end date
+        } else {
+          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+        }
         break;
       case "all-time":
       default:
@@ -61,6 +73,7 @@ export async function GET(request: NextRequest) {
       .eq("status", "closed")
       .gt("live_pl", 0)
       .gte("close_time", startDate.toISOString())
+      .lte("close_time", endDate.toISOString())
       .order("close_time", { ascending: false });
 
     if (profile.mt5_account_id) {

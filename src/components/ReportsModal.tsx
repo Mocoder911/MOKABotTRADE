@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -20,19 +20,7 @@ interface ReportData {
   period: string;
 }
 
-interface ReportsModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
-
-type Period = "daily" | "weekly" | "monthly" | "all-time";
-
-const PERIOD_LABELS: Record<Period, string> = {
-  daily: "Daily",
-  weekly: "Weekly",
-  monthly: "Monthly",
-  "all-time": "All Time",
-};
+type Period = "daily" | "weekly" | "monthly" | "custom" | "all-time";
 
 function formatUSD(value: number): string {
   return value.toLocaleString("en-US", {
@@ -51,193 +39,459 @@ function formatTime(dateStr: string): string {
   });
 }
 
-export default function ReportsModal({ isOpen, onClose }: ReportsModalProps) {
+function formatDate(dateStr: string): string {
+  return new Date(dateStr).toISOString().split("T")[0];
+}
+
+export default function ReportsDropdown() {
   const { user } = useAuth();
-  const [activePeriod, setActivePeriod] = useState<Period>("daily");
-  const [reportData, setReportData] = useState<ReportData | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [showCustomDates, setShowCustomDates] = useState(false);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [loading, setLoading] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Close dropdown when clicking outside
   useEffect(() => {
-    if (!isOpen || !user) return;
-
-    const fetchReport = async () => {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/reports?period=${activePeriod}`, {
-          headers: { "x-user-id": user.id },
-          cache: "no-store",
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setReportData(data);
-        }
-      } catch (err) {
-        console.error("Failed to fetch report:", err);
-      } finally {
-        setLoading(false);
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setShowCustomDates(false);
       }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const generateReport = async (period: Period) => {
+    if (!user) return;
+
+    if (period === "custom") {
+      if (!startDate || !endDate) {
+        alert("Please select both start and end dates");
+        return;
+      }
+      setShowCustomDates(true);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ period });
+      const res = await fetch(`/api/reports?${params.toString()}`, {
+        headers: { "x-user-id": user.id },
+        cache: "no-store",
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        openReportWindow(data, period);
+      }
+    } catch (err) {
+      console.error("Failed to fetch report:", err);
+    } finally {
+      setLoading(false);
+      setIsOpen(false);
+    }
+  };
+
+  const generateCustomReport = async () => {
+    if (!user || !startDate || !endDate) return;
+
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        period: "custom",
+        start: startDate,
+        end: endDate,
+      });
+      const res = await fetch(`/api/reports?${params.toString()}`, {
+        headers: { "x-user-id": user.id },
+        cache: "no-store",
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        openReportWindow(data, "custom", startDate, endDate);
+      }
+    } catch (err) {
+      console.error("Failed to fetch report:", err);
+    } finally {
+      setLoading(false);
+      setShowCustomDates(false);
+      setIsOpen(false);
+    }
+  };
+
+  const openReportWindow = (data: ReportData, period: Period, start?: string, end?: string) => {
+    const periodLabels: Record<string, string> = {
+      daily: "Daily Report",
+      weekly: "Weekly Report",
+      monthly: "Monthly Report",
+      "all-time": "All-Time Report",
+      custom: `Custom Report (${start} to ${end})`,
     };
 
-    fetchReport();
-  }, [isOpen, activePeriod, user]);
+    const periodLabel = periodLabels[period] || "Report";
+    const generatedAt = new Date().toLocaleString();
 
-  if (!isOpen) return null;
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Trading Report - ${periodLabel}</title>
+  <style>
+    @media print {
+      body { margin: 0; padding: 20px; }
+      .no-print { display: none; }
+    }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #1a1f26;
+      color: #fff;
+      margin: 0;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px;
+      border-bottom: 2px solid #374151;
+      margin-bottom: 30px;
+    }
+    .logo-section {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    .logo-text {
+      font-size: 24px;
+      font-weight: bold;
+      color: #22d3ee;
+    }
+    .mt5-badge {
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: bold;
+      font-size: 18px;
+    }
+    .title {
+      text-align: center;
+      flex: 1;
+    }
+    .title h1 {
+      margin: 0;
+      font-size: 28px;
+      letter-spacing: 2px;
+    }
+    .title p {
+      margin: 5px 0 0 0;
+      color: #6b7280;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+    .summary-card {
+      background: #111827;
+      border: 1px solid #374151;
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+    .summary-card label {
+      display: block;
+      font-size: 11px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+    .summary-card .value {
+      font-size: 28px;
+      font-weight: bold;
+    }
+    .value-cyan { color: #22d3ee; }
+    .value-green { color: #10b981; }
+    .value-white { color: #fff; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #111827;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    th {
+      background: #1f2937;
+      padding: 15px;
+      text-align: left;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #6b7280;
+    }
+    td {
+      padding: 12px 15px;
+      border-top: 1px solid #374151;
+    }
+    tr:hover { background: #1f2937; }
+    .type-buy {
+      background: rgba(16, 185, 129, 0.2);
+      color: #10b981;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .type-sell {
+      background: rgba(244, 63, 94, 0.2);
+      color: #f43f5e;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .profit { color: #10b981; font-family: monospace; text-align: right; }
+    .footer {
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 1px solid #374151;
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #6b7280;
+    }
+    .print-btn {
+      background: #22d3ee;
+      color: #000;
+      border: none;
+      padding: 12px 30px;
+      border-radius: 8px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .print-btn:hover { background: #06b6d4; }
+    .no-trades {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+      font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+  <div class="no-print" style="text-align: center; margin-bottom: 20px;">
+    <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+  </div>
+
+  <div class="header">
+    <div class="logo-section">
+      <div class="logo-text">MOKABot</div>
+    </div>
+    <div class="title">
+      <h1>${periodLabel}</h1>
+      <p>Winning Trades Only</p>
+    </div>
+    <div class="logo-section">
+      <div class="mt5-badge">MetaTrader 5</div>
+    </div>
+  </div>
+
+  <div class="summary">
+    <div class="summary-card">
+      <label>Winning Trades</label>
+      <div class="value value-cyan">${data.tradeCount}</div>
+    </div>
+    <div class="summary-card">
+      <label>Total Profit</label>
+      <div class="value value-green">+$${formatUSD(data.totalProfit)}</div>
+    </div>
+    <div class="summary-card">
+      <label>Balance</label>
+      <div class="value value-white">$${formatUSD(data.balance)}</div>
+    </div>
+  </div>
+
+  ${data.trades.length > 0 ? `
+  <table>
+    <thead>
+      <tr>
+        <th>Symbol</th>
+        <th>Type</th>
+        <th>Volume</th>
+        <th style="text-align: right;">Profit</th>
+        <th style="text-align: right;">Closed</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${data.trades.map(trade => `
+      <tr>
+        <td>${trade.symbol}</td>
+        <td><span class="type-${trade.type}">${trade.type?.toUpperCase()}</span></td>
+        <td>${trade.volume}</td>
+        <td class="profit">+$${formatUSD(trade.live_pl)}</td>
+        <td style="text-align: right; color: #6b7280;">${formatTime(trade.close_time)}</td>
+      </tr>
+      `).join("")}
+    </tbody>
+  </table>
+  ` : '<div class="no-trades">No winning trades found for this period</div>'}
+
+  <div class="footer">
+    <span>Report generated: ${generatedAt}</span>
+    <span>MOKABot Trading Platform</span>
+  </div>
+
+  <script>
+    // Auto-focus print button
+    document.querySelector('.print-btn')?.focus();
+  </script>
+</body>
+</html>
+    `;
+
+    const printWindow = window.open("", "_blank");
+    if (printWindow) {
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+    }
+  };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm">
-      <div className="bg-[#1a1f26] border border-gray-700/60 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
-        {/* Header with Logos */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700/60 bg-gradient-to-r from-gray-900/50 to-gray-800/50">
-          {/* MOKABot Logo */}
-          <div className="flex items-center gap-3">
-            <Image
-              src="/mokabot-logo.png"
-              alt="MOKABot"
-              width={48}
-              height={48}
-              className="object-contain drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]"
-              priority
-            />
-            <span className="text-lg font-bold text-cyan-400 tracking-wider">MOKABot</span>
+    <div className="relative" ref={dropdownRef}>
+      {/* Reports Button */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="text-xs text-gray-500 hover:text-cyan-400 border border-gray-800 hover:border-cyan-500/30 rounded-lg px-3 py-1.5 transition-all duration-200"
+        title="Reports"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+          <polyline points="10 9 9 9 8 9"></polyline>
+        </svg>
+      </button>
+
+      {/* Dropdown Menu */}
+      {isOpen && (
+        <div className="absolute right-0 top-full mt-2 w-56 bg-[#1a1f26] border border-gray-700/60 rounded-xl shadow-2xl overflow-hidden z-50">
+          <div className="px-4 py-3 border-b border-gray-700/40 bg-gray-900/30">
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Generate Report</p>
           </div>
 
-          {/* Title */}
-          <div className="text-center">
-            <h2 className="text-xl font-bold text-white tracking-wide">Trading Report</h2>
-            <p className="text-xs text-gray-500 uppercase tracking-wider">Winning Trades Only</p>
-          </div>
-
-          {/* MT5 Logo */}
-          <div className="flex items-center gap-3">
-            <span className="text-lg font-bold text-blue-400 tracking-wider">MetaTrader 5</span>
-            <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-lg">
-              <span className="text-white font-bold text-lg">MT5</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Period Tabs */}
-        <div className="flex items-center gap-2 px-6 py-3 border-b border-gray-700/40 bg-gray-900/30">
-          {(Object.keys(PERIOD_LABELS) as Period[]).map((period) => (
+          <div className="p-2">
             <button
-              key={period}
-              onClick={() => setActivePeriod(period)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-                activePeriod === period
-                  ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/50"
-                  : "text-gray-500 hover:text-white hover:bg-gray-800/50"
-              }`}
+              onClick={() => generateReport("daily")}
+              disabled={loading}
+              className="w-full text-left px-4 py-3 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-gray-800/50 transition-colors flex items-center gap-3 disabled:opacity-50"
             >
-              {PERIOD_LABELS[period]}
+              <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" strokeWidth="2"></circle>
+                <polyline points="12 6 12 12 16 14" strokeWidth="2"></polyline>
+              </svg>
+              Daily Report
             </button>
-          ))}
-        </div>
 
-        {/* Content */}
-        <div className="overflow-y-auto max-h-[60vh] p-6">
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-2 border-cyan-500 border-t-transparent"></div>
-              <span className="ml-3 text-gray-400">Loading report...</span>
-            </div>
-          ) : reportData ? (
-            <>
-              {/* Summary Cards */}
-              <div className="grid grid-cols-3 gap-4 mb-6">
-                <div className="bg-gray-900/50 border border-gray-700/50 rounded-xl p-4 text-center">
-                  <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">Winning Trades</p>
-                  <p className="text-2xl font-bold text-cyan-400">{reportData.tradeCount}</p>
+            <button
+              onClick={() => generateReport("weekly")}
+              disabled={loading}
+              className="w-full text-left px-4 py-3 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-gray-800/50 transition-colors flex items-center gap-3 disabled:opacity-50"
+            >
+              <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" strokeWidth="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6" strokeWidth="2"></line>
+                <line x1="8" y1="2" x2="8" y2="6" strokeWidth="2"></line>
+                <line x1="3" y1="10" x2="21" y2="10" strokeWidth="2"></line>
+              </svg>
+              Weekly Report
+            </button>
+
+            <button
+              onClick={() => generateReport("monthly")}
+              disabled={loading}
+              className="w-full text-left px-4 py-3 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-gray-800/50 transition-colors flex items-center gap-3 disabled:opacity-50"
+            >
+              <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" strokeWidth="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6" strokeWidth="2"></line>
+                <line x1="8" y1="2" x2="8" y2="6" strokeWidth="2"></line>
+                <line x1="3" y1="10" x2="21" y2="10" strokeWidth="2"></line>
+              </svg>
+              Monthly Report
+            </button>
+
+            <button
+              onClick={() => generateReport("all-time")}
+              disabled={loading}
+              className="w-full text-left px-4 py-3 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-gray-800/50 transition-colors flex items-center gap-3 disabled:opacity-50"
+            >
+              <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" strokeWidth="2"></polyline>
+              </svg>
+              All-Time Report
+            </button>
+
+            <div className="border-t border-gray-700/40 my-2"></div>
+
+            <button
+              onClick={() => generateReport("custom")}
+              disabled={loading}
+              className="w-full text-left px-4 py-3 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-gray-800/50 transition-colors flex items-center gap-3 disabled:opacity-50"
+            >
+              <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" strokeWidth="2"></circle>
+                <line x1="12" y1="8" x2="12" y2="12" strokeWidth="2"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16" strokeWidth="2"></line>
+              </svg>
+              Custom Date Range
+            </button>
+          </div>
+
+          {/* Custom Date Picker */}
+          {showCustomDates && (
+            <div className="p-4 border-t border-gray-700/40 bg-gray-900/30">
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Start Date</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-500"
+                  />
                 </div>
-                <div className="bg-gray-900/50 border border-gray-700/50 rounded-xl p-4 text-center">
-                  <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">Total Profit</p>
-                  <p className="text-2xl font-bold text-emerald-400">
-                    +${formatUSD(reportData.totalProfit)}
-                  </p>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">End Date</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-500"
+                  />
                 </div>
-                <div className="bg-gray-900/50 border border-gray-700/50 rounded-xl p-4 text-center">
-                  <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">Balance</p>
-                  <p className="text-2xl font-bold text-white">${formatUSD(reportData.balance)}</p>
-                </div>
+                <button
+                  onClick={generateCustomReport}
+                  disabled={loading || !startDate || !endDate}
+                  className="w-full py-2 bg-cyan-500 hover:bg-cyan-600 text-black font-medium rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? "Generating..." : "Generate Report"}
+                </button>
               </div>
-
-              {/* Trades Table */}
-              {reportData.trades.length > 0 ? (
-                <div className="bg-gray-900/30 border border-gray-700/40 rounded-xl overflow-hidden">
-                  <table className="w-full">
-                    <thead className="bg-gray-800/50">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                          Symbol
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                          Type
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                          Volume
-                        </th>
-                        <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
-                          Profit
-                        </th>
-                        <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
-                          Closed
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-700/30">
-                      {reportData.trades.map((trade, idx) => (
-                        <tr key={idx} className="hover:bg-gray-800/30 transition-colors">
-                          <td className="px-4 py-3 text-sm font-medium text-white">
-                            {trade.symbol}
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            <span
-                              className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                trade.type === "buy"
-                                  ? "bg-emerald-500/20 text-emerald-400"
-                                  : "bg-rose-500/20 text-rose-400"
-                              }`}
-                            >
-                              {trade.type?.toUpperCase()}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-400">{trade.volume}</td>
-                          <td className="px-4 py-3 text-sm text-right font-mono text-emerald-400">
-                            +${formatUSD(trade.live_pl)}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-right text-gray-500">
-                            {formatTime(trade.close_time)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <p className="text-gray-500 text-lg">No winning trades found for this period</p>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="text-center py-12">
-              <p className="text-gray-500 text-lg">Failed to load report</p>
             </div>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-700/60 bg-gray-900/30">
-          <p className="text-xs text-gray-600">
-            Report generated: {new Date().toLocaleString()}
-          </p>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            Close
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
