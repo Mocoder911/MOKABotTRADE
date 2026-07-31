@@ -695,7 +695,7 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
                 if deal.entry == mt5.DEAL_ENTRY_IN:
                     deal_type = "open"
                     status = "open"
-                elif deal.entry == mt5.DEAL_ENTRY_OUT or deal.entry == mt5.DEAL_ENTRY_OUT_CLOSE:
+                elif deal.entry == mt5.DEAL_ENTRY_OUT:
                     deal_type = "close"
                     status = "closed"
                 elif deal.entry == mt5.DEAL_ENTRY_INOUT:
