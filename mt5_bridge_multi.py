@@ -556,15 +556,33 @@ def sync_account_trades(user_id: str, account_id: str):
     ghost_tickets = db_tickets - mt5_tickets
     if ghost_tickets:
         log("WARN", f"Found {len(ghost_tickets)} GHOST trades in DB: {ghost_tickets}", account_id)
-        # Mark ghost trades as closed
+        # Mark ghost trades as closed and send Telegram notification
         for ticket in ghost_tickets:
             try:
+                # Get trade details from DB before closing
+                trade_result = supabase.table("trades").select("symbol, type, volume, live_pl").eq("ticket", ticket).eq("account_id", account_id).execute()
+                trade_info = trade_result.data[0] if trade_result.data else None
+                
                 supabase.table("trades").update({
                     "status": "closed",
                     "close_reason": "ghost_cleanup",
                     "closed_at": datetime.now(timezone.utc).isoformat()
                 }).eq("ticket", ticket).execute()
                 log("INFO", f"Ghost trade {ticket} marked as closed", account_id)
+                
+                # Send Telegram notification for ghost trade closure
+                if trade_info:
+                    emoji = "🟢" if trade_info.get("live_pl", 0) >= 0 else "🔴"
+                    send_telegram(
+                        f"{emoji} <b>TRADE CLOSED (Ghost)</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━\n"
+                        f"📊 Symbol: <b>{trade_info.get('symbol', 'N/A')}</b>\n"
+                        f"📌 Direction: <b>{trade_info.get('type', 'N/A')}</b>\n"
+                        f"💰 Lot Size: <b>{trade_info.get('volume', 0)}</b>\n"
+                        f"💵 Last P/L: <b>${trade_info.get('live_pl', 0):.2f}</b>\n"
+                        f"🆔 Ticket: <code>{ticket}</code>\n"
+                        f"🏦 Account: <code>{account_id}</code>"
+                    )
             except Exception as e:
                 log("ERROR", f"Failed to close ghost trade {ticket}: {e}", account_id)
     
