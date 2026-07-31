@@ -734,7 +734,7 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
             "account_id": account_id,
             "net_profit": today_net_profit,
             "calculated_at": now_utc.isoformat(),
-            "date": today_start_egypt.date().isoformat()
+            "date": today_start.date().isoformat()
         }, on_conflict="user_id,date").execute()
         
         log("INFO", f"Today's Net calculated: ${today_net_profit:.2f} from {len(all_deals)} deals", account_id)
