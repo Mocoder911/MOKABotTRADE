@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 interface Trade {
   symbol: string;
   live_pl: number;
-  close_time: string;
+  closed_at: string;
   type: string;
   volume: number;
 }
@@ -339,7 +339,7 @@ export default function ReportsDropdown() {
         <td><span class="type-${trade.type}">${trade.type?.toUpperCase()}</span></td>
         <td>${trade.volume}</td>
         <td class="profit">+$${formatUSD(trade.live_pl)}</td>
-        <td style="text-align: right; color: #6b7280;">${formatTime(trade.close_time)}</td>
+        <td style="text-align: right; color: #6b7280;">${formatTime(trade.closed_at)}</td>
       </tr>
       `).join("")}
     </tbody>

@@ -68,13 +68,13 @@ export async function GET(request: NextRequest) {
     // Query winning trades (live_pl > 0) closed within the date range
     let tradesQuery = supabase
       .from("trades")
-      .select("symbol, live_pl, close_time, type, volume")
+      .select("symbol, live_pl, closed_at, type, volume")
       .eq("user_id", userId)
       .eq("status", "closed")
       .gt("live_pl", 0)
-      .gte("close_time", startDate.toISOString())
-      .lte("close_time", endDate.toISOString())
-      .order("close_time", { ascending: false });
+      .gte("closed_at", startDate.toISOString())
+      .lte("closed_at", endDate.toISOString())
+      .order("closed_at", { ascending: false });
 
     if (profile.mt5_account_id) {
       tradesQuery = tradesQuery.eq("account_id", profile.mt5_account_id);
