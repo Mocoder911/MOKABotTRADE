@@ -682,17 +682,21 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
         
         log("INFO", f"Found {len(all_deals)} total deals today (UTC)", account_id)
         
-        # Calculate Today's Net directly from MT5 deals (ALL deals, not just new ones)
+        # Calculate Today's Net directly from MT5 deals (only DEAL_ENTRY_OUT - matches MT5 History tab)
         today_net_profit = 0.0
         
-        # First, calculate profit for ALL deals with debug logging
+        # First, calculate profit for DEAL_ENTRY_OUT deals only (matches MT5 History tab)
         for deal in all_deals:
-            profit = getattr(deal, 'profit', 0) or 0
-            swap = getattr(deal, 'swap', 0) or 0
-            commission = getattr(deal, 'commission', 0) or 0
-            deal_profit = profit + swap + commission
-            log("DEBUG", f"Deal {deal.ticket}: profit=${profit:.2f}, swap=${swap:.2f}, commission=${commission:.2f}, total=${deal_profit:.2f}", account_id)
-            today_net_profit += deal_profit
+            # Only count deals that close positions (DEAL_ENTRY_OUT or DEAL_ENTRY_OUT_CLOSE)
+            if deal.entry in [mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_OUT_CLOSE]:
+                profit = getattr(deal, 'profit', 0) or 0
+                swap = getattr(deal, 'swap', 0) or 0
+                commission = getattr(deal, 'commission', 0) or 0
+                deal_profit = profit + swap + commission
+                log("DEBUG", f"Deal {deal.ticket} (CLOSE): profit=${profit:.2f}, swap=${swap:.2f}, commission=${commission:.2f}, total=${deal_profit:.2f}", account_id)
+                today_net_profit += deal_profit
+            else:
+                log("DEBUG", f"Deal {deal.ticket} (OPEN/BALANCE): skipped (entry={deal.entry})", account_id)
         
         # Then, sync new deals to Supabase
         for deal in all_deals:
