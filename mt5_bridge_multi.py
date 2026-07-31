@@ -687,8 +687,8 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
         
         # First, calculate profit for DEAL_ENTRY_OUT deals only (matches MT5 History tab)
         for deal in all_deals:
-            # Only count deals that close positions (DEAL_ENTRY_OUT or DEAL_ENTRY_OUT_CLOSE)
-            if deal.entry in [mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_OUT_CLOSE]:
+            # Only count deals that close positions (DEAL_ENTRY_OUT)
+            if deal.entry == mt5.DEAL_ENTRY_OUT:
                 profit = getattr(deal, 'profit', 0) or 0
                 swap = getattr(deal, 'swap', 0) or 0
                 commission = getattr(deal, 'commission', 0) or 0
