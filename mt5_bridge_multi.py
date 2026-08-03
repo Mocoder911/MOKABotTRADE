@@ -896,7 +896,7 @@ def process_all_symbols(account_id: str, settings: Dict):
     3. For symbols with no positions, check direction and open base order
     4. Max 15 BASE orders across all symbols (grid steps are unlimited)
     """
-    basket_tp = float(settings.get('Basket_Take_Profit', 10))
+    basket_tp = float(settings.get('Basket_Take_Profit', DEFAULT_BASKET_TP))
     grid_step = int(settings.get('Grid_Step', 100))
     max_positions = int(settings.get('Max_Open_Positions', DEFAULT_MAX_POSITIONS))
     lot_size = get_fixed_lot_size(settings)
@@ -1761,7 +1761,7 @@ def process_account(account: Dict, safety_engines: Dict[str, SafetyEngine]) -> b
         
         if passed:
             log("INFO", f"Bot RUNNING | Safety checks PASSED | Grid Trading Mode", account_id)
-            log("DEBUG", f"[SETTINGS] Basket_TP=${tactics_settings.get('Basket_Take_Profit', 10)} | Grid_Step={tactics_settings.get('Grid_Step', 100)}pts | Max_Pos={tactics_settings.get('Max_Open_Positions', 1)} | Lot={get_fixed_lot_size(tactics_settings)}", account_id)
+            log("DEBUG", f"[SETTINGS] Basket_TP=${tactics_settings.get('Basket_Take_Profit', DEFAULT_BASKET_TP)} | Grid_Step={tactics_settings.get('Grid_Step', 100)}pts | Max_Pos={tactics_settings.get('Max_Open_Positions', 1)} | Lot={get_fixed_lot_size(tactics_settings)}", account_id)
             
             # Process all symbols with grid trading logic
             process_all_symbols(account_id, tactics_settings)
