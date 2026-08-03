@@ -158,8 +158,8 @@ def ensure_symbol_in_market_watch(symbol: str, account_id: str) -> bool:
 # ============================================
 # These values are applied automatically unless overridden in tactics_settings table
 DEFAULT_GRID_STEP = 100          # Grid step in points (LEGACY - not used anymore)
-DEFAULT_FIXED_LOT_SIZE = 0.02    # Fixed lot size - no multipliers
-DEFAULT_BASKET_TP = 10           # Basket take profit in USD
+DEFAULT_FIXED_LOT_SIZE = 0.1    # Fixed lot size - no multipliers
+DEFAULT_BASKET_TP = 5           # Basket take profit in USD
 DEFAULT_MAX_POSITIONS = 15        # Max open positions per symbol
 DEFAULT_EQUITY_SL_PCT = 0        # Equity stop loss percentage
 DEFAULT_MAX_SPREAD_PIPS = 3.0    # Max allowed spread in pips
@@ -746,7 +746,7 @@ def sync_closed_trades_from_history(account_id: str, user_id: str):
 # ============================================
 # BASKET TP PER SYMBOL
 # ============================================
-def check_basket_tp_per_symbol(account_id: str, basket_tp_usd: float = 10.0) -> Dict:
+def check_basket_tp_per_symbol(account_id: str, basket_tp_usd: float = 5.0) -> Dict:
     """
     Check basket TP for each symbol separately.
     Returns dict of symbol -> closed (True if closed).
