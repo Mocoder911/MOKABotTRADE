@@ -894,13 +894,13 @@ def process_all_symbols(account_id: str, settings: Dict):
     1. Check basket TP and close if target reached
     2. For closed symbols (by basket TP), immediately re-open base order
     3. For symbols with no positions, check direction and open base order
-    4. Max 15 BASE orders across all symbols (grid steps are unlimited)
+    4. Max 8 BASE orders across all symbols (grid steps are unlimited)
     """
     basket_tp = float(settings.get('Basket_Take_Profit', DEFAULT_BASKET_TP))
     grid_step = int(settings.get('Grid_Step', 100))
     max_positions = int(settings.get('Max_Open_Positions', DEFAULT_MAX_POSITIONS))
     lot_size = get_fixed_lot_size(settings)
-    MAX_BASE_ORDERS = 15  # Hard limit on BASE orders only - grid steps are unlimited
+    MAX_BASE_ORDERS = 8  # Hard limit on BASE orders only - grid steps are unlimited
     
     # Get all available symbols from MT5
     all_symbols = mt5.symbols_get()
