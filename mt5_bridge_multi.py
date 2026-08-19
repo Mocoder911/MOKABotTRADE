@@ -1023,6 +1023,13 @@ def process_all_symbols(account_id: str, settings: Dict):
             total_profit = get_symbol_open_profit(symbol)
             
             log("DEBUG", f"[MONITOR] {symbol}: {total_orders} positions ({symbol_base_orders} base) | P/L=${total_profit:.2f} | Waiting for basket TP ${basket_tp}", account_id)
+            
+            # FAST CHECK: Immediately check if this symbol hit basket TP after monitoring
+            if total_profit >= basket_tp:
+                log("INFO", f"[BASKET TP FAST] {symbol}: P/L ${total_profit:.2f} >= ${basket_tp:.2f} - CLOSING IMMEDIATELY", account_id)
+                symbol_positions = get_symbol_positions(symbol)
+                for pos in symbol_positions:
+                    close_position(pos, account_id)
 
 def close_position(pos, account_id: str):
     """Close a single position."""
@@ -1883,9 +1890,9 @@ def main():
         if account_failures:
             log("WARN", f"Accounts in cooldown: {list(account_failures.keys())}")
         
-        # Wait before next cycle
-        log("INFO", "Waiting 10s before next cycle...")
-        time.sleep(10)
+        # Wait before next cycle (reduced for faster basket TP detection)
+        log("INFO", "Waiting 3s before next cycle...")
+        time.sleep(3)
 
 if __name__ == "__main__":
     try:
