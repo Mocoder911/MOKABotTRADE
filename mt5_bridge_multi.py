@@ -556,30 +556,72 @@ def sync_account_trades(user_id: str, account_id: str):
     ghost_tickets = db_tickets - mt5_tickets
     if ghost_tickets:
         log("WARN", f"Found {len(ghost_tickets)} GHOST trades in DB: {ghost_tickets}", account_id)
-        # Mark ghost trades as closed and send Telegram notification
+        
+        # Fetch MT5 history deals to verify actual closures (last 7 days)
+        verified_closures = {}  # ticket -> profit
+        try:
+            from datetime import timedelta
+            history_from = datetime.now() - timedelta(days=7)
+            history_to = datetime.now()
+            deals = mt5.history_deals_get(history_from, history_to)
+            if deals:
+                for deal in deals:
+                    # Only count DEAL_ENTRY_OUT deals (actual position closures)
+                    if deal.entry == mt5.DEAL_ENTRY_OUT:
+                        # Store the profit for this ticket (last one wins if multiple)
+                        verified_closures[str(deal.ticket)] = deal.profit
+            log("DEBUG", f"Verified {len(verified_closures)} closed deals from MT5 history", account_id)
+        except Exception as e:
+            log("ERROR", f"Failed to fetch history deals for ghost verification: {e}", account_id)
+        
+        # Mark ghost trades as closed and send Telegram notification ONLY if verified
         for ticket in ghost_tickets:
             try:
+                # Check if this ticket is in verified closures with non-zero profit
+                if ticket not in verified_closures:
+                    log("DEBUG", f"Ghost ticket {ticket} not found in MT5 history - skipping notification", account_id)
+                    # Still mark as closed in DB but don't notify
+                    supabase.table("trades").update({
+                        "status": "closed",
+                        "close_reason": "ghost_cleanup_unverified",
+                        "closed_at": datetime.now(timezone.utc).isoformat()
+                    }).eq("ticket", ticket).execute()
+                    continue
+                
+                actual_profit = verified_closures[ticket]
+                
+                # Skip notification if profit is zero
+                if actual_profit == 0.0:
+                    log("DEBUG", f"Ghost ticket {ticket} has zero profit - skipping notification", account_id)
+                    supabase.table("trades").update({
+                        "status": "closed",
+                        "close_reason": "ghost_cleanup_zero_profit",
+                        "closed_at": datetime.now(timezone.utc).isoformat()
+                    }).eq("ticket", ticket).execute()
+                    continue
+                
                 # Get trade details from DB before closing
-                trade_result = supabase.table("trades").select("symbol, type, volume, live_pl").eq("ticket", ticket).eq("account_id", account_id).execute()
+                trade_result = supabase.table("trades").select("symbol, type, volume").eq("ticket", ticket).eq("account_id", account_id).execute()
                 trade_info = trade_result.data[0] if trade_result.data else None
                 
                 supabase.table("trades").update({
                     "status": "closed",
                     "close_reason": "ghost_cleanup",
-                    "closed_at": datetime.now(timezone.utc).isoformat()
+                    "closed_at": datetime.now(timezone.utc).isoformat(),
+                    "live_pl": actual_profit
                 }).eq("ticket", ticket).execute()
-                log("INFO", f"Ghost trade {ticket} marked as closed", account_id)
+                log("INFO", f"Ghost trade {ticket} marked as closed with profit ${actual_profit:.2f}", account_id)
                 
-                # Send Telegram notification for ghost trade closure
+                # Send Telegram notification ONLY for verified closures with non-zero profit
                 if trade_info:
-                    emoji = "🟢" if trade_info.get("live_pl", 0) >= 0 else "🔴"
+                    emoji = "🟢" if actual_profit >= 0 else "🔴"
                     send_telegram(
-                        f"{emoji} <b>TRADE CLOSED (Ghost)</b>\n"
+                        f"{emoji} <b>TRADE CLOSED</b>\n"
                         f"━━━━━━━━━━━━━━━━━━\n"
                         f"📊 Symbol: <b>{trade_info.get('symbol', 'N/A')}</b>\n"
                         f"📌 Direction: <b>{trade_info.get('type', 'N/A')}</b>\n"
                         f"💰 Lot Size: <b>{trade_info.get('volume', 0)}</b>\n"
-                        f"💵 Last P/L: <b>${trade_info.get('live_pl', 0):.2f}</b>\n"
+                        f"💵 Profit: <b>${actual_profit:.2f}</b>\n"
                         f"🆔 Ticket: <code>{ticket}</code>\n"
                         f"🏦 Account: <code>{account_id}</code>"
                     )
