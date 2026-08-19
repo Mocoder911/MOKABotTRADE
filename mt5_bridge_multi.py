@@ -45,9 +45,14 @@ TELEGRAM_ACCOUNTS = [
 TELEGRAM_ENABLED = True  # Set to False to disable notifications
 
 def send_telegram(message: str):
-    """Send a Telegram notification to all configured accounts."""
+    """Send a Telegram notification to all configured accounts. Skips weekends (Saturday/Sunday)."""
     import ssl
     if not TELEGRAM_ENABLED:
+        return
+    
+    # Weekend check: Skip notifications on Saturday (5) and Sunday (6)
+    current_day = datetime.now().weekday()
+    if current_day >= 5:  # 5=Saturday, 6=Sunday
         return
     
     # Create SSL context that ignores certificate errors (for VPS with proxy/firewall)
