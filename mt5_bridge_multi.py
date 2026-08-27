@@ -947,7 +947,8 @@ def process_all_symbols(account_id: str, settings: Dict):
     grid_step = int(settings.get('Grid_Step', 100))
     max_positions = int(settings.get('Max_Open_Positions', DEFAULT_MAX_POSITIONS))
     lot_size = get_fixed_lot_size(settings)
-    MAX_BASE_ORDERS = 8  # Hard limit on BASE orders only - grid steps are unlimited
+    MAX_BASE_ORDERS = 8  # Hard limit on BASE orders only
+    MAX_TOTAL_POSITIONS = 20  # HARD LIMIT: Total positions (base + grid) - NO new positions when reached
     
     # Get all available symbols from MT5
     all_symbols = mt5.symbols_get()
@@ -971,7 +972,16 @@ def process_all_symbols(account_id: str, settings: Dict):
     base_orders_count = sum(1 for p in all_positions if p.comment == "MOKABot Base")
     total_positions = len(all_positions)
     
-    log("INFO", f"Processing {len(allowed_symbols)} symbols | Base orders: {base_orders_count}/{MAX_BASE_ORDERS} | Total positions: {total_positions}", account_id)
+    log("INFO", f"Processing {len(allowed_symbols)} symbols | Base orders: {base_orders_count}/{MAX_BASE_ORDERS} | Total positions: {total_positions}/{MAX_TOTAL_POSITIONS}", account_id)
+    
+    # CRITICAL: If total positions reached hard limit, ONLY monitor - NO new positions
+    if total_positions >= MAX_TOTAL_POSITIONS:
+        log("WARN", f"[MAX POSITIONS] Total positions {total_positions}/{MAX_TOTAL_POSITIONS} - BLOCKING all new positions until closures", account_id)
+        # Only check basket TP to close positions - nothing else
+        closed_symbols = check_basket_tp_per_symbol(account_id, basket_tp)
+        if closed_symbols:
+            log("INFO", f"[MAX POSITIONS] Basket TP closed {len(closed_symbols)} symbols - will re-evaluate next cycle", account_id)
+        return
     
     # Step 1: Check basket TP for all symbols
     closed_symbols = check_basket_tp_per_symbol(account_id, basket_tp)
@@ -1015,8 +1025,13 @@ def process_all_symbols(account_id: str, settings: Dict):
         
         # Case 2: Has positions - check grid step and monitor (PRIORITY - reinforce existing)
         elif total_orders >= 1:
-            # Check if we should open a grid level (every $10 loss) - UNLIMITED grid steps
-            check_and_open_grid_steps(symbol, grid_step, lot_size, account_id, max_positions)
+            # CRITICAL: Check total positions before opening ANY grid step
+            current_total = len(mt5.positions_get() or [])
+            if current_total >= MAX_TOTAL_POSITIONS:
+                log("DEBUG", f"[MAX POSITIONS] {symbol}: Total {current_total}/{MAX_TOTAL_POSITIONS} - BLOCKING grid step", account_id)
+            else:
+                # Check if we should open a grid level
+                check_and_open_grid_steps(symbol, grid_step, lot_size, account_id, max_positions)
             # Refresh position count after potential grid open
             positions = get_symbol_positions(symbol)
             total_orders = len(positions)
