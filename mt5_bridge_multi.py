@@ -163,7 +163,7 @@ def ensure_symbol_in_market_watch(symbol: str, account_id: str) -> bool:
 # ============================================
 # These values are applied automatically unless overridden in tactics_settings table
 DEFAULT_GRID_STEP = 100          # Grid step in points (LEGACY - not used anymore)
-DEFAULT_FIXED_LOT_SIZE = 0.1    # Fixed lot size - no multipliers
+DEFAULT_FIXED_LOT_SIZE = 0.02    # Fixed lot size - no multipliers
 DEFAULT_BASKET_TP = 5           # Basket take profit in USD
 DEFAULT_MAX_POSITIONS = 15        # Max open positions per symbol
 DEFAULT_EQUITY_SL_PCT = 0        # Equity stop loss percentage
@@ -197,6 +197,24 @@ FOREX_CURRENCIES = load_allowed_currencies()
 # Additional blocked symbols (indices, commodities, crypto)
 BLOCKED_SYMBOL_KEYWORDS = ['XAU', 'XAG', 'OIL', 'BTC', 'ETH', 'US30', 'NAS100', 'SPX500', 'GOLD', 'SILVER']
 
+# Hardcoded initial basket directions: 14 pairs (7 BUY / 7 SELL)
+INITIAL_BASKET_DIRECTIONS = {
+    'EURUSD': 'BUY',
+    'GBPUSD': 'BUY',
+    'USDCHF': 'BUY',
+    'USDCAD': 'SELL',
+    'USDJPY': 'BUY',
+    'EURJPY': 'SELL',
+    'GBPJPY': 'SELL',
+    'CHFJPY': 'BUY',
+    'CADJPY': 'SELL',
+    'AUDUSD': 'SELL',
+    'AUDJPY': 'BUY',
+    'AUDCHF': 'SELL',
+    'EURGBP': 'BUY',
+    'EURCHF': 'SELL',
+}
+
 def is_allowed_symbol(symbol: str, settings: Dict) -> bool:
     """
     Dynamic Symbol Filtering - Gateway check before any trade.
@@ -210,6 +228,10 @@ def is_allowed_symbol(symbol: str, settings: Dict) -> bool:
     - Check Excluded_Symbols from database for manual blacklist
     """
     symbol_upper = symbol.upper()
+    
+    # Block NZD pairs completely
+    if 'NZD' in symbol_upper:
+        return False
     
     # Check blocked keywords first
     for keyword in BLOCKED_SYMBOL_KEYWORDS:
@@ -947,8 +969,8 @@ def process_all_symbols(account_id: str, settings: Dict):
     grid_step = int(settings.get('Grid_Step', 100))
     max_positions = int(settings.get('Max_Open_Positions', DEFAULT_MAX_POSITIONS))
     lot_size = get_fixed_lot_size(settings)
-    MAX_BASE_ORDERS = 0  # DISABLED: No new base orders
-    MAX_TOTAL_POSITIONS = 0  # DISABLED: No new positions at all - only monitor and close existing
+    MAX_BASE_ORDERS = 14  # Hard limit: 14 pairs
+    MAX_TOTAL_POSITIONS = 14  # HARD LIMIT: Total positions (base + grid) - NO new positions when reached
     
     # Get all available symbols from MT5
     all_symbols = mt5.symbols_get()
@@ -1006,8 +1028,14 @@ def process_all_symbols(account_id: str, settings: Dict):
                 log("DEBUG", f"[MAX BASE] {symbol}: Base orders {base_orders_count}/{MAX_BASE_ORDERS} - NO new base order", account_id)
                 continue
             
+            # Use hardcoded direction from INITIAL_BASKET_DIRECTIONS if available
+            if symbol in INITIAL_BASKET_DIRECTIONS:
+                direction = INITIAL_BASKET_DIRECTIONS[symbol]
+                log("DEBUG", f"[HARDCODED] {symbol}: Using hardcoded direction={direction}", account_id)
+            else:
+                direction = check_market_direction(symbol)
+            
             # Open new base order (including symbols just closed by basket TP)
-            direction = check_market_direction(symbol)
             if direction != 'NONE':
                 if symbol in closed_symbols:
                     log("INFO", f"[RE-OPEN BASE] {symbol}: Basket TP hit | Direction={direction} -> OPENING ({base_orders_count+1}/{MAX_BASE_ORDERS})", account_id)
