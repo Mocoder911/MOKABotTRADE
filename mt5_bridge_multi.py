@@ -44,6 +44,15 @@ TELEGRAM_ACCOUNTS = [
 ]
 TELEGRAM_ENABLED = True  # Set to False to disable notifications
 
+# ============================================
+# SINGLE ACCOUNT MODE (Override database)
+# ============================================
+# Set to True to only trade on a specific account (ignores database)
+SINGLE_ACCOUNT_MODE = True
+SINGLE_ACCOUNT_LOGIN = 84318982
+SINGLE_ACCOUNT_PASSWORD = "Kikokok5@"
+SINGLE_ACCOUNT_SERVER = "Exness-MT5Real"
+
 def send_telegram(message: str):
     """Send a Telegram notification to all configured accounts. Skips weekends (Saturday/Sunday)."""
     import ssl
@@ -628,6 +637,17 @@ BRIDGE_ID = os.environ.get('BRIDGE_ID', 'local')
 # ============================================
 def fetch_active_accounts() -> List[Dict]:
     """Fetch all active MT5 accounts assigned to this bridge from database."""
+    # SINGLE ACCOUNT MODE: Override database and return only the configured account
+    if SINGLE_ACCOUNT_MODE:
+        log("INFO", f"[SINGLE ACCOUNT MODE] Using hardcoded account: {SINGLE_ACCOUNT_LOGIN}")
+        return [{
+            'user_id': 'single_account',
+            'email': 'single@mokabot.local',
+            'login': SINGLE_ACCOUNT_LOGIN,
+            'password': SINGLE_ACCOUNT_PASSWORD,
+            'server': SINGLE_ACCOUNT_SERVER
+        }]
+    
     try:
         # Fetch accounts assigned to this bridge_id
         result = supabase.table("profiles").select(
