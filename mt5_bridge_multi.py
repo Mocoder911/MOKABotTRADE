@@ -51,7 +51,7 @@ TELEGRAM_ENABLED = True  # Set to False to disable notifications
 SINGLE_ACCOUNT_MODE = True
 SINGLE_ACCOUNT_LOGIN = 84318982
 SINGLE_ACCOUNT_PASSWORD = "Kikokok5@"
-SINGLE_ACCOUNT_SERVER = "Exness-MT5Real"
+SINGLE_ACCOUNT_SERVER = "FPMarketsSC-Live"
 
 def send_telegram(message: str):
     """Send a Telegram notification to all configured accounts. Skips weekends (Saturday/Sunday)."""
