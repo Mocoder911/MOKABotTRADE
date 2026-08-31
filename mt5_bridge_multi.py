@@ -163,9 +163,11 @@ def ensure_symbol_in_market_watch(symbol: str, account_id: str) -> bool:
 # ============================================
 # These values are applied automatically unless overridden in tactics_settings table
 DEFAULT_GRID_STEP = 100          # Grid step in points (LEGACY - not used anymore)
-DEFAULT_FIXED_LOT_SIZE = 0.02    # Fixed lot size - no multipliers
-DEFAULT_BASKET_TP = 5           # Basket take profit in USD
-DEFAULT_MAX_POSITIONS = 15        # Max open positions per symbol
+DEFAULT_FIXED_LOT_SIZE = 0.01    # Fixed lot size - no multipliers
+DEFAULT_BASKET_TP = 2.50         # Basket take profit per pair in USD
+DEFAULT_MAX_POSITIONS = 4         # Max open positions per pair (1 base + 3 grid)
+MAX_POSITIONS_PER_PAIR = 4       # HARD LIMIT: Max 4 positions per pair (1 base + 3 grid)
+GLOBAL_FREEZE_THRESHOLD = -500.0  # Global floating loss limit (50% equity protection)
 DEFAULT_EQUITY_SL_PCT = 0        # Equity stop loss percentage
 DEFAULT_MAX_SPREAD_PIPS = 3.0    # Max allowed spread in pips
 DEFAULT_GRID_STEP_LOSS_USD = 10.0  # Grid step based on dollar loss per position
@@ -197,23 +199,32 @@ FOREX_CURRENCIES = load_allowed_currencies()
 # Additional blocked symbols (indices, commodities, crypto)
 BLOCKED_SYMBOL_KEYWORDS = ['XAU', 'XAG', 'OIL', 'BTC', 'ETH', 'US30', 'NAS100', 'SPX500', 'GOLD', 'SILVER']
 
-# Hardcoded initial basket directions: 14 pairs (7 BUY / 7 SELL)
+# Allowed 14 pairs whitelist (ONLY these pairs can be traded)
+ALLOWED_PAIRS = {
+    'EURUSD', 'GBPUSD', 'AUDUSD', 'NZDUSD', 'EURJPY', 'GBPJPY', 'EURGBP',
+    'USDCHF', 'USDCAD', 'USDJPY', 'USDNOK', 'CHFJPY', 'USDSEK', 'USDSGD',
+}
+
+# Hardcoded initial basket directions: 14 pairs (ALL BUY - Hedge Matrix)
 INITIAL_BASKET_DIRECTIONS = {
     'EURUSD': 'BUY',
     'GBPUSD': 'BUY',
-    'USDCHF': 'BUY',
-    'USDCAD': 'SELL',
-    'USDJPY': 'BUY',
-    'EURJPY': 'SELL',
-    'GBPJPY': 'SELL',
-    'CHFJPY': 'BUY',
-    'CADJPY': 'SELL',
-    'AUDUSD': 'SELL',
-    'AUDJPY': 'BUY',
-    'AUDCHF': 'SELL',
+    'AUDUSD': 'BUY',
+    'NZDUSD': 'BUY',
+    'EURJPY': 'BUY',
+    'GBPJPY': 'BUY',
     'EURGBP': 'BUY',
-    'EURCHF': 'SELL',
+    'USDCHF': 'BUY',
+    'USDCAD': 'BUY',
+    'USDJPY': 'BUY',
+    'USDNOK': 'BUY',
+    'CHFJPY': 'BUY',
+    'USDSEK': 'BUY',
+    'USDSGD': 'BUY',
 }
+
+# Global freeze mode state (persists across cycles)
+_freeze_mode_active = False
 
 def is_allowed_symbol(symbol: str, settings: Dict) -> bool:
     """
@@ -229,34 +240,16 @@ def is_allowed_symbol(symbol: str, settings: Dict) -> bool:
     """
     symbol_upper = symbol.upper()
     
-    # Block NZD pairs completely
-    if 'NZD' in symbol_upper:
-        return False
-    
     # Check blocked keywords first
     for keyword in BLOCKED_SYMBOL_KEYWORDS:
         if keyword in symbol_upper:
             return False
     
-    # Check manual exclusion list from database
-    excluded_str = settings.get('Excluded_Symbols', '')
-    if excluded_str:
-        excluded = [s.strip().upper() for s in excluded_str.split(',') if s.strip()]
-        if symbol_upper in excluded:
-            return False
+    # STRICT WHITELIST: Only allow the 14 configured pairs
+    if symbol_upper not in ALLOWED_PAIRS:
+        return False
     
-    # Check if symbol contains at least 2 forex currency codes
-    currency_count = 0
-    for currency in FOREX_CURRENCIES:
-        if currency in symbol_upper:
-            currency_count += 1
-    
-    # Forex pairs have 2 currencies (e.g., EURUSD = EUR + USD)
-    if currency_count >= 2:
-        return True
-    
-    # Everything else is blocked
-    return False
+    return True
 
 def is_spread_safe(symbol: str, max_spread_pips: float = None, account_id: str = None) -> bool:
     """
@@ -918,7 +911,10 @@ def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, ac
     if not positions:
         return
     
-    # Grid steps are UNLIMITED - no max_positions check
+    # HARD LIMIT: Max 4 positions per pair (1 base + 3 grid) - NO 5th order allowed
+    if len(positions) >= MAX_POSITIONS_PER_PAIR:
+        log("DEBUG", f"[GRID] {symbol}: Max positions {len(positions)}/{MAX_POSITIONS_PER_PAIR} - BLOCKED (hard limit)", account_id)
+        return
     
     # Get the most recent position
     last_pos = max(positions, key=lambda p: p.time)
@@ -960,17 +956,19 @@ def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, ac
 def process_all_symbols(account_id: str, settings: Dict):
     """
     Process all allowed symbols with grid trading logic:
-    1. Check basket TP and close if target reached
-    2. For closed symbols (by basket TP), immediately re-open base order
-    3. For symbols with no positions, check direction and open base order
-    4. Max 8 BASE orders across all symbols (grid steps are unlimited)
+    1. Check global freeze mode (-$500 floating loss)
+    2. Check basket TP per pair and close if target reached
+    3. Re-open base order for closed pairs immediately
+    4. For symbols with no positions, open base order
+    5. Max 14 pairs, max 4 positions per pair
     """
+    global _freeze_mode_active
+    
     basket_tp = float(settings.get('Basket_Take_Profit', DEFAULT_BASKET_TP))
     grid_step = int(settings.get('Grid_Step', 100))
     max_positions = int(settings.get('Max_Open_Positions', DEFAULT_MAX_POSITIONS))
     lot_size = get_fixed_lot_size(settings)
     MAX_BASE_ORDERS = 14  # Hard limit: 14 pairs
-    MAX_TOTAL_POSITIONS = 14  # HARD LIMIT: Total positions (base + grid) - NO new positions when reached
     
     # Get all available symbols from MT5
     all_symbols = mt5.symbols_get()
@@ -989,21 +987,56 @@ def process_all_symbols(account_id: str, settings: Dict):
                     log("DEBUG", f"[MARKET WATCH] Added: {sym.name}", account_id)
             allowed_symbols.append(sym.name)
     
-    # Get current base orders count (positions with comment "MOKABot Base")
+    # Get current positions
     all_positions = mt5.positions_get() or []
-    base_orders_count = sum(1 for p in all_positions if p.comment == "MOKABot Base")
     total_positions = len(all_positions)
     
-    log("INFO", f"Processing {len(allowed_symbols)} symbols | Base orders: {base_orders_count}/{MAX_BASE_ORDERS} | Total positions: {total_positions}/{MAX_TOTAL_POSITIONS}", account_id)
+    # === GLOBAL FREEZE MODE CHECK ===
+    total_floating_pl = sum(pos.profit + pos.swap for pos in all_positions)
     
-    # CRITICAL: If total positions reached hard limit, ONLY monitor - NO new positions
-    if total_positions >= MAX_TOTAL_POSITIONS:
-        log("WARN", f"[MAX POSITIONS] Total positions {total_positions}/{MAX_TOTAL_POSITIONS} - BLOCKING all new positions until closures", account_id)
-        # Only check basket TP to close positions - nothing else
+    if total_floating_pl <= GLOBAL_FREEZE_THRESHOLD:
+        if not _freeze_mode_active:
+            _freeze_mode_active = True
+            log("WARN", f"[FREEZE MODE] ACTIVATED! Total floating P/L ${total_floating_pl:.2f} <= ${GLOBAL_FREEZE_THRESHOLD} - BLOCKING all new grid orders", account_id)
+            send_telegram(
+                f"\u26a0\ufe0f <b>FREEZE MODE ACTIVATED</b>\n"
+                f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+                f"\ud83d\udcca Total Floating P/L: <b>${total_floating_pl:.2f}</b>\n"
+                f"\ud83d\uded1 Threshold: <b>${GLOBAL_FREEZE_THRESHOLD}</b>\n"
+                f"\u274c All new grid orders BLOCKED\n"
+                f"\u2705 Basket TP still active (will close pairs at +${basket_tp:.2f})\n"
+                f"\ud83c\udfe6 Account: <code>{account_id}</code>"
+            )
+        # FREEZE MODE: Only check basket TP - NO new positions
         closed_symbols = check_basket_tp_per_symbol(account_id, basket_tp)
         if closed_symbols:
-            log("INFO", f"[MAX POSITIONS] Basket TP closed {len(closed_symbols)} symbols - will re-evaluate next cycle", account_id)
+            log("INFO", f"[FREEZE MODE] Basket TP closed {len(closed_symbols)} pairs - monitoring recovery", account_id)
+        # Check if recovered
+        if total_floating_pl > GLOBAL_FREEZE_THRESHOLD:
+            _freeze_mode_active = False
+            log("INFO", f"[FREEZE MODE] DEACTIVATED - Floating P/L recovered to ${total_floating_pl:.2f}", account_id)
+            send_telegram(
+                f"\u2705 <b>FREEZE MODE DEACTIVATED</b>\n"
+                f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+                f"\ud83d\udcca Total Floating P/L recovered: <b>${total_floating_pl:.2f}</b>\n"
+                f"\u2705 Grid operations RESUMED\n"
+                f"\ud83c\udfe6 Account: <code>{account_id}</code>"
+            )
         return
+    else:
+        # Check if freeze was active and now recovered
+        if _freeze_mode_active:
+            _freeze_mode_active = False
+            log("INFO", f"[FREEZE MODE] DEACTIVATED - Floating P/L recovered to ${total_floating_pl:.2f}", account_id)
+            send_telegram(
+                f"\u2705 <b>FREEZE MODE DEACTIVATED</b>\n"
+                f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+                f"\ud83d\udcca Total Floating P/L recovered: <b>${total_floating_pl:.2f}</b>\n"
+                f"\u2705 Grid operations RESUMED\n"
+                f"\ud83c\udfe6 Account: <code>{account_id}</code>"
+            )
+    
+    log("INFO", f"Processing {len(allowed_symbols)} symbols | Total positions: {total_positions} | Floating P/L: ${total_floating_pl:.2f} | Basket TP: ${basket_tp:.2f}/pair", account_id)
     
     # Step 1: Check basket TP for all symbols
     closed_symbols = check_basket_tp_per_symbol(account_id, basket_tp)
@@ -1053,13 +1086,8 @@ def process_all_symbols(account_id: str, settings: Dict):
         
         # Case 2: Has positions - check grid step and monitor (PRIORITY - reinforce existing)
         elif total_orders >= 1:
-            # CRITICAL: Check total positions before opening ANY grid step
-            current_total = len(mt5.positions_get() or [])
-            if current_total >= MAX_TOTAL_POSITIONS:
-                log("DEBUG", f"[MAX POSITIONS] {symbol}: Total {current_total}/{MAX_TOTAL_POSITIONS} - BLOCKING grid step", account_id)
-            else:
-                # Check if we should open a grid level
-                check_and_open_grid_steps(symbol, grid_step, lot_size, account_id, max_positions)
+            # Check if we should open a grid level (per-pair limit enforced in check_and_open_grid_steps)
+            check_and_open_grid_steps(symbol, grid_step, lot_size, account_id, max_positions)
             # Refresh position count after potential grid open
             positions = get_symbol_positions(symbol)
             total_orders = len(positions)
@@ -1879,8 +1907,10 @@ def main():
     log("INFO", "=" * 70)
     
     # Print hard-coded strategy configuration
-    log("INFO", "[System] Strategy Loaded: Grid Trading Mode | Lot 0.02 | Basket $10 | Grid Step 100pts | Max Pos 1")
-    log("INFO", "[System] Filters Applied: Forex-Only. Blocked: XAU, XAG, OIL, BTC, ETH, US30, NAS100")
+    log("INFO", "[System] Strategy Loaded: Grid Trading Mode | Lot 0.01 | Basket $2.50/pair | Grid Step -$10 | Max 4 pos/pair")
+    log("INFO", "[System] 14 Pairs: EURUSD GBPUSD AUDUSD NZDUSD EURJPY GBPJPY EURGBP USDCHF USDCAD USDJPY USDNOK CHFJPY USDSEK USDSGD")
+    log("INFO", "[System] Freeze Mode: -$500 floating loss | All initial directions: BUY")
+    log("INFO", "[System] Filters: Strict whitelist only. Blocked: XAU, XAG, OIL, BTC, ETH, US30, NAS100")
     log("INFO", "=" * 70)
     
     cycle = 0
