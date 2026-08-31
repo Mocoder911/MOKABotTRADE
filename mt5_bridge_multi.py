@@ -210,6 +210,25 @@ JPY_PAIRS = {'USDJPY', 'EURJPY', 'GBPJPY', 'CHFJPY', 'CADJPY', 'AUDJPY'}
 USD_PAIRS = {'EURUSD', 'GBPUSD', 'USDCHF', 'USDCAD'}
 AUD_PAIRS = {'AUDUSD', 'AUDJPY'}
 
+# Per-pair Magic Numbers for independent P/L tracking
+PAIR_MAGIC = {
+    'EURUSD': 100101,
+    'GBPUSD': 100202,
+    'USDCHF': 100303,
+    'USDCAD': 100404,
+    'USDJPY': 100505,
+    'EURJPY': 100606,
+    'GBPJPY': 100707,
+    'CHFJPY': 100808,
+    'CADJPY': 100909,
+    'AUDJPY': 101010,
+    'AUDUSD': 101111,
+    'EURGBP': 101212,
+    'EURAUD': 101313,
+    'GBPAUD': 101414,
+}
+DEFAULT_MAGIC = 100000  # Fallback for any pair not in the map
+
 # Global freeze mode state (persists across cycles)
 _freeze_mode_active = False
 
@@ -1220,7 +1239,7 @@ def close_position(pos, account_id: str):
             "position": pos.ticket,
             "price": price,
             "deviation": 20,
-            "magic": 100000,
+            "magic": PAIR_MAGIC.get(pos.symbol, DEFAULT_MAGIC),
             "comment": "Basket TP closed",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": mt5.ORDER_FILLING_FOK,
@@ -1297,7 +1316,7 @@ def execute_trade(symbol: str, order_type: str, lot_size: float, account_id: str
             "type": mt5_order_type,
             "price": price,
             "deviation": 20,
-            "magic": 100000,
+            "magic": PAIR_MAGIC.get(symbol, DEFAULT_MAGIC),
             "comment": comment,
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": mt5.ORDER_FILLING_FOK,
