@@ -201,27 +201,14 @@ BLOCKED_SYMBOL_KEYWORDS = ['XAU', 'XAG', 'OIL', 'BTC', 'ETH', 'US30', 'NAS100', 
 
 # Allowed 14 pairs whitelist (ONLY these pairs can be traded)
 ALLOWED_PAIRS = {
-    'EURUSD', 'GBPUSD', 'AUDUSD', 'NZDUSD', 'EURJPY', 'GBPJPY', 'EURGBP',
-    'USDCHF', 'USDCAD', 'USDJPY', 'USDNOK', 'CHFJPY', 'USDSEK', 'USDSGD',
+    'EURUSD', 'GBPUSD', 'USDCHF', 'USDCAD', 'USDJPY', 'EURJPY', 'GBPJPY',
+    'CHFJPY', 'CADJPY', 'AUDJPY', 'AUDUSD', 'EURGBP', 'EURAUD', 'GBPAUD',
 }
 
-# Hardcoded initial basket directions: 14 pairs (ALL BUY - Hedge Matrix)
-INITIAL_BASKET_DIRECTIONS = {
-    'EURUSD': 'BUY',
-    'GBPUSD': 'BUY',
-    'AUDUSD': 'BUY',
-    'NZDUSD': 'BUY',
-    'EURJPY': 'BUY',
-    'GBPJPY': 'BUY',
-    'EURGBP': 'BUY',
-    'USDCHF': 'BUY',
-    'USDCAD': 'BUY',
-    'USDJPY': 'BUY',
-    'USDNOK': 'BUY',
-    'CHFJPY': 'BUY',
-    'USDSEK': 'BUY',
-    'USDSGD': 'BUY',
-}
+# Pair groups for correlation rules
+JPY_PAIRS = {'USDJPY', 'EURJPY', 'GBPJPY', 'CHFJPY', 'CADJPY', 'AUDJPY'}
+USD_PAIRS = {'EURUSD', 'GBPUSD', 'USDCHF', 'USDCAD'}
+AUD_PAIRS = {'AUDUSD', 'AUDJPY'}
 
 # Global freeze mode state (persists across cycles)
 _freeze_mode_active = False
@@ -250,6 +237,122 @@ def is_allowed_symbol(symbol: str, settings: Dict) -> bool:
         return False
     
     return True
+
+def get_dynamic_direction(symbol: str, account_id: str = None) -> str:
+    """
+    Calculate dynamic trade direction with strict hedge correlation rules.
+    
+    Rules applied in order:
+    1. Global Hedge Lock: Max 7 BUY / 7 SELL across all pairs
+    2. USD Exposure Hedge: EURUSD/GBPUSD direction affects USDCHF/USDCAD
+    3. JPY Crosses Lock: Max 3 BUY / 3 SELL across 6 JPY pairs
+    4. AUD Commodity Hedge: AUDUSD direction restricts AUDJPY
+    5. Market Direction (RSI/MACD) as base signal
+    
+    Returns: 'BUY', 'SELL', or 'NONE'
+    """
+    # Get all current positions to analyze hedge state
+    all_positions = mt5.positions_get() or []
+    
+    # Count active basket directions (base orders only)
+    buy_count = 0
+    sell_count = 0
+    jpy_buy = 0
+    jpy_sell = 0
+    usd_base_direction = None  # Track EURUSD/GBPUSD direction
+    audusd_direction = None
+    
+    for pos in all_positions:
+        if pos.comment == "MOKABot Base":
+            if pos.type == mt5.POSITION_TYPE_BUY:
+                buy_count += 1
+                if pos.symbol in JPY_PAIRS:
+                    jpy_buy += 1
+                if pos.symbol in ('EURUSD', 'GBPUSD'):
+                    usd_base_direction = 'BUY'
+                if pos.symbol == 'AUDUSD':
+                    audusd_direction = 'BUY'
+            else:
+                sell_count += 1
+                if pos.symbol in JPY_PAIRS:
+                    jpy_sell += 1
+                if pos.symbol in ('EURUSD', 'GBPUSD'):
+                    usd_base_direction = 'SELL'
+                if pos.symbol == 'AUDUSD':
+                    audusd_direction = 'SELL'
+    
+    # Get base market direction signal
+    market_signal = check_market_direction(symbol)
+    if market_signal == 'NONE':
+        return 'NONE'
+    
+    direction = market_signal
+    
+    # === RULE A: Global Hedge Lock (7 BUY / 7 SELL) ===
+    if buy_count >= 7 and direction == 'BUY':
+        log("INFO", f"[HEDGE] {symbol}: BUY count={buy_count}/7 - FORCED to SELL", account_id)
+        direction = 'SELL'
+    elif sell_count >= 7 and direction == 'SELL':
+        log("INFO", f"[HEDGE] {symbol}: SELL count={sell_count}/7 - FORCED to BUY", account_id)
+        direction = 'BUY'
+    
+    # === RULE B: USD Exposure Hedge ===
+    if symbol == 'USDCHF':
+        # USDCHF is negatively correlated with EUR/GBP
+        if usd_base_direction == 'BUY':
+            # EUR/GBP BUY -> USD weak -> USDCHF should BUY (USD strength)
+            direction = 'BUY'
+            log("INFO", f"[USD HEDGE] {symbol}: EUR/GBP=BUY -> USDCHF forced BUY", account_id)
+        elif usd_base_direction == 'SELL':
+            direction = 'SELL'
+            log("INFO", f"[USD HEDGE] {symbol}: EUR/GBP=SELL -> USDCHF forced SELL", account_id)
+    
+    elif symbol == 'USDCAD':
+        # USDCAD is positively correlated with USD strength
+        if usd_base_direction == 'BUY':
+            direction = 'SELL'  # Force opposite to hedge
+            log("INFO", f"[USD HEDGE] {symbol}: EUR/GBP=BUY -> USDCAD forced SELL", account_id)
+        elif usd_base_direction == 'SELL':
+            direction = 'BUY'
+            log("INFO", f"[USD HEDGE] {symbol}: EUR/GBP=SELL -> USDCAD forced BUY", account_id)
+    
+    # === RULE C: JPY Crosses Group Lock (3 BUY / 3 SELL) ===
+    if symbol in JPY_PAIRS:
+        if jpy_buy >= 3 and direction == 'BUY':
+            direction = 'SELL'
+            log("INFO", f"[JPY LOCK] {symbol}: JPY BUY={jpy_buy}/3 - FORCED to SELL", account_id)
+        elif jpy_sell >= 3 and direction == 'SELL':
+            direction = 'BUY'
+            log("INFO", f"[JPY LOCK] {symbol}: JPY SELL={jpy_sell}/3 - FORCED to BUY", account_id)
+    
+    # === RULE D: AUD Commodity Hedge ===
+    if symbol == 'AUDJPY' and audusd_direction:
+        # AUDJPY should oppose AUDUSD to balance AUD risk
+        if audusd_direction == 'BUY':
+            direction = 'SELL'
+            log("INFO", f"[AUD HEDGE] {symbol}: AUDUSD=BUY -> AUDJPY forced SELL", account_id)
+        elif audusd_direction == 'SELL':
+            direction = 'BUY'
+            log("INFO", f"[AUD HEDGE] {symbol}: AUDUSD=SELL -> AUDJPY forced BUY", account_id)
+    
+    elif symbol == 'AUDUSD':
+        # Check if AUDJPY already has a direction
+        audjpy_direction = None
+        for pos in all_positions:
+            if pos.symbol == 'AUDJPY' and pos.comment == "MOKABot Base":
+                audjpy_direction = 'BUY' if pos.type == mt5.POSITION_TYPE_BUY else 'SELL'
+                break
+        if audjpy_direction:
+            # AUDUSD should oppose AUDJPY
+            if audjpy_direction == 'BUY':
+                direction = 'SELL'
+                log("INFO", f"[AUD HEDGE] {symbol}: AUDJPY=BUY -> AUDUSD forced SELL", account_id)
+            else:
+                direction = 'BUY'
+                log("INFO", f"[AUD HEDGE] {symbol}: AUDJPY=SELL -> AUDUSD forced BUY", account_id)
+    
+    log("DEBUG", f"[DIRECTION] {symbol}: Market={market_signal} -> Final={direction} (BUY:{buy_count}/SELL:{sell_count})", account_id)
+    return direction
 
 def is_spread_safe(symbol: str, max_spread_pips: float = None, account_id: str = None) -> bool:
     """
@@ -1061,12 +1164,8 @@ def process_all_symbols(account_id: str, settings: Dict):
                 log("DEBUG", f"[MAX BASE] {symbol}: Base orders {base_orders_count}/{MAX_BASE_ORDERS} - NO new base order", account_id)
                 continue
             
-            # Use hardcoded direction from INITIAL_BASKET_DIRECTIONS if available
-            if symbol in INITIAL_BASKET_DIRECTIONS:
-                direction = INITIAL_BASKET_DIRECTIONS[symbol]
-                log("DEBUG", f"[HARDCODED] {symbol}: Using hardcoded direction={direction}", account_id)
-            else:
-                direction = check_market_direction(symbol)
+            # Use dynamic direction with hedge correlation rules
+            direction = get_dynamic_direction(symbol, account_id)
             
             # Open new base order (including symbols just closed by basket TP)
             if direction != 'NONE':
@@ -1908,9 +2007,10 @@ def main():
     
     # Print hard-coded strategy configuration
     log("INFO", "[System] Strategy Loaded: Grid Trading Mode | Lot 0.01 | Basket $2.50/pair | Grid Step -$10 | Max 4 pos/pair")
-    log("INFO", "[System] 14 Pairs: EURUSD GBPUSD AUDUSD NZDUSD EURJPY GBPJPY EURGBP USDCHF USDCAD USDJPY USDNOK CHFJPY USDSEK USDSGD")
-    log("INFO", "[System] Freeze Mode: -$500 floating loss | All initial directions: BUY")
-    log("INFO", "[System] Filters: Strict whitelist only. Blocked: XAU, XAG, OIL, BTC, ETH, US30, NAS100")
+    log("INFO", "[System] 14 Pairs: EURUSD GBPUSD USDCHF USDCAD USDJPY EURJPY GBPJPY CHFJPY CADJPY AUDJPY AUDUSD EURGBP EURAUD GBPAUD")
+    log("INFO", "[System] Dynamic Correlation: 7/7 Hedge Lock | USD Exposure | JPY 3/3 Lock | AUD Hedge")
+    log("INFO", "[System] Freeze Mode: -$500 floating loss | Auto-resume on recovery")
+    log("INFO", "[System] Filters: Strict whitelist only. Blocked: NZD, XAU, XAG, OIL, BTC, ETH, US30, NAS100")
     log("INFO", "=" * 70)
     
     cycle = 0
