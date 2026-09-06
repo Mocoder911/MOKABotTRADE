@@ -208,10 +208,12 @@ FOREX_CURRENCIES = load_allowed_currencies()
 # Additional blocked symbols (indices, commodities, crypto)
 BLOCKED_SYMBOL_KEYWORDS = ['XAU', 'XAG', 'OIL', 'BTC', 'ETH', 'US30', 'NAS100', 'SPX500', 'GOLD', 'SILVER']
 
-# Allowed 14 pairs whitelist (ONLY these pairs can be traded)
+# Allowed 21 pairs whitelist (ONLY these pairs can be traded)
+# All valid cross-pairs from 7 currencies: USD, EUR, GBP, JPY, AUD, CAD, CHF
 ALLOWED_PAIRS = {
     'EURUSD', 'GBPUSD', 'USDCHF', 'USDCAD', 'USDJPY', 'EURJPY', 'GBPJPY',
     'CHFJPY', 'CADJPY', 'AUDJPY', 'AUDUSD', 'EURGBP', 'EURAUD', 'GBPAUD',
+    'EURCAD', 'GBPCAD', 'CADCHF', 'EURCHF', 'GBPCHF', 'AUDCAD', 'AUDCHF',
 }
 
 # Pair groups for correlation rules
@@ -235,6 +237,13 @@ PAIR_MAGIC = {
     'EURGBP': 101212,
     'EURAUD': 101313,
     'GBPAUD': 101414,
+    'EURCAD': 101515,
+    'GBPCAD': 101616,
+    'CADCHF': 101717,
+    'EURCHF': 101818,
+    'GBPCHF': 101919,
+    'AUDCAD': 102020,
+    'AUDCHF': 102121,
 }
 DEFAULT_MAGIC = 100000  # Fallback for any pair not in the map
 
@@ -271,9 +280,9 @@ def get_dynamic_direction(symbol: str, account_id: str = None) -> str:
     Calculate dynamic trade direction with strict hedge correlation rules.
     
     Rules applied in order:
-    1. Global Hedge Lock: Max 7 BUY / 7 SELL across all pairs
+    1. Global Hedge Lock: Max 11 BUY / 10 SELL across all 21 pairs
     2. USD Exposure Hedge: EURUSD/GBPUSD direction affects USDCHF/USDCAD
-    3. JPY Crosses Lock: Max 3 BUY / 3 SELL across 6 JPY pairs
+    3. JPY Crosses Lock: Max 4 BUY / 3 SELL across 6 JPY pairs
     4. AUD Commodity Hedge: AUDUSD direction restricts AUDJPY
     5. Market Direction (RSI/MACD) as base signal
     
@@ -316,12 +325,12 @@ def get_dynamic_direction(symbol: str, account_id: str = None) -> str:
     
     direction = market_signal
     
-    # === RULE A: Global Hedge Lock (7 BUY / 7 SELL) ===
-    if buy_count >= 7 and direction == 'BUY':
-        log("INFO", f"[HEDGE] {symbol}: BUY count={buy_count}/7 - FORCED to SELL", account_id)
+    # === RULE A: Global Hedge Lock (11 BUY / 10 SELL for 21 pairs) ===
+    if buy_count >= 11 and direction == 'BUY':
+        log("INFO", f"[HEDGE] {symbol}: BUY count={buy_count}/11 - FORCED to SELL", account_id)
         direction = 'SELL'
-    elif sell_count >= 7 and direction == 'SELL':
-        log("INFO", f"[HEDGE] {symbol}: SELL count={sell_count}/7 - FORCED to BUY", account_id)
+    elif sell_count >= 10 and direction == 'SELL':
+        log("INFO", f"[HEDGE] {symbol}: SELL count={sell_count}/10 - FORCED to BUY", account_id)
         direction = 'BUY'
     
     # === RULE B: USD Exposure Hedge ===
@@ -344,11 +353,11 @@ def get_dynamic_direction(symbol: str, account_id: str = None) -> str:
             direction = 'BUY'
             log("INFO", f"[USD HEDGE] {symbol}: EUR/GBP=SELL -> USDCAD forced BUY", account_id)
     
-    # === RULE C: JPY Crosses Group Lock (3 BUY / 3 SELL) ===
+    # === RULE C: JPY Crosses Group Lock (4 BUY / 3 SELL for 6 JPY pairs) ===
     if symbol in JPY_PAIRS:
-        if jpy_buy >= 3 and direction == 'BUY':
+        if jpy_buy >= 4 and direction == 'BUY':
             direction = 'SELL'
-            log("INFO", f"[JPY LOCK] {symbol}: JPY BUY={jpy_buy}/3 - FORCED to SELL", account_id)
+            log("INFO", f"[JPY LOCK] {symbol}: JPY BUY={jpy_buy}/4 - FORCED to SELL", account_id)
         elif jpy_sell >= 3 and direction == 'SELL':
             direction = 'BUY'
             log("INFO", f"[JPY LOCK] {symbol}: JPY SELL={jpy_sell}/3 - FORCED to BUY", account_id)
@@ -1007,27 +1016,78 @@ def get_last_position_price(symbol: str) -> Optional[float]:
 
 def check_market_direction(symbol: str) -> str:
     """
-    Determine market direction using RSI and MACD.
+    Determine market direction using RSI, MACD, then Trend fallback.
+    Priority:
+      1. RSI(14): oversold/overbought signal
+      2. MACD(12,26,9): momentum signal
+      3. EMA(20) vs EMA(50): trend direction (fallback when no clear signal)
     Returns 'BUY', 'SELL', or 'NONE'.
     """
-    # Check RSI
+    # Step 1: Check RSI
     rsi_value = calculate_rsi(symbol, 14)
     if rsi_value is not None:
         if rsi_value < 30:
+            log("DEBUG", f"[SIGNAL] {symbol}: RSI={rsi_value:.1f} (< 30) -> BUY", None)
             return 'BUY'
         elif rsi_value > 70:
+            log("DEBUG", f"[SIGNAL] {symbol}: RSI={rsi_value:.1f} (> 70) -> SELL", None)
             return 'SELL'
     
-    # Check MACD
+    # Step 2: Check MACD
     macd_result = calculate_macd(symbol, 12, 26, 9)
     if macd_result:
         macd_line, signal_line, histogram = macd_result
         if macd_line > signal_line and histogram > 0:
+            log("DEBUG", f"[SIGNAL] {symbol}: MACD bullish (hist={histogram:.5f}) -> BUY", None)
             return 'BUY'
         elif macd_line < signal_line and histogram < 0:
+            log("DEBUG", f"[SIGNAL] {symbol}: MACD bearish (hist={histogram:.5f}) -> SELL", None)
             return 'SELL'
     
-    return 'NONE'
+    # Step 3: Trend fallback — EMA(20) vs EMA(50)
+    trend = get_trend_direction(symbol, 20, 50)
+    if trend != 'NONE':
+        log("DEBUG", f"[SIGNAL] {symbol}: No RSI/MACD signal -> Trend fallback -> {trend}", None)
+    return trend
+
+
+def get_trend_direction(symbol: str, fast_period: int = 20, slow_period: int = 50) -> str:
+    """
+    Determine trend direction using EMA crossover.
+    EMA(fast) > EMA(slow) -> uptrend -> BUY
+    EMA(fast) < EMA(slow) -> downtrend -> SELL
+    Returns 'BUY', 'SELL', or 'NONE'.
+    """
+    try:
+        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M15, 0, slow_period + 50)
+        if rates is None or len(rates) < slow_period + 10:
+            return 'NONE'
+        
+        closes = [r.close for r in rates]
+        
+        # Calculate EMAs
+        def ema(data, period):
+            multiplier = 2 / (period + 1)
+            result = [data[0]]
+            for i in range(1, len(data)):
+                result.append((data[i] - result[-1]) * multiplier + result[-1])
+            return result
+        
+        ema_fast = ema(closes, fast_period)
+        ema_slow = ema(closes, slow_period)
+        
+        fast_val = ema_fast[-1]
+        slow_val = ema_slow[-1]
+        
+        if fast_val > slow_val:
+            return 'BUY'
+        elif fast_val < slow_val:
+            return 'SELL'
+        
+        return 'NONE'
+    except Exception as e:
+        log("DEBUG", f"Trend calculation error for {symbol}: {e}", None)
+        return 'NONE'
 
 def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, account_id: str, max_positions: int, step_loss_usd: float = None):
     """
@@ -1100,9 +1160,9 @@ def process_all_symbols(account_id: str, settings: Dict):
     Process all allowed symbols with grid trading logic:
     1. Check global freeze mode (-$500 floating loss)
     2. Check basket TP per pair and close if target reached
-    3. Re-open base order for closed pairs immediately
-    4. For symbols with no positions, open base order
-    5. Max 14 pairs, max 4 positions per pair
+    3. Re-open base order for closed pairs immediately (direction from RSI/MACD)
+    4. For symbols with no positions, open base order (direction from RSI/MACD)
+    5. Max 21 pairs, max 4 positions per pair
     """
     global _freeze_mode_active
     
@@ -1110,7 +1170,7 @@ def process_all_symbols(account_id: str, settings: Dict):
     grid_step = int(settings.get('Grid_Step', 100))
     max_positions = int(settings.get('Max_Open_Positions', DEFAULT_MAX_POSITIONS))
     lot_size = get_fixed_lot_size(settings)
-    MAX_BASE_ORDERS = 14  # Hard limit: 14 pairs
+    MAX_BASE_ORDERS = 21  # Hard limit: 21 pairs (all 7-currency crosses)
     
     # Get all available symbols from MT5
     all_symbols = mt5.symbols_get()
