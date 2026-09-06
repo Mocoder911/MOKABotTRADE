@@ -53,16 +53,17 @@ SINGLE_ACCOUNT_LOGIN = 84318982
 SINGLE_ACCOUNT_PASSWORD = "Kikokok5@"
 SINGLE_ACCOUNT_SERVER = "FPMarketsSC-Live"
 
-def send_telegram(message: str):
-    """Send a Telegram notification to all configured accounts. Skips weekends (Saturday/Sunday)."""
+def send_telegram(message: str, force: bool = False):
+    """Send a Telegram notification to all configured accounts. Skips weekends unless force=True."""
     import ssl
     if not TELEGRAM_ENABLED:
         return
     
-    # Weekend check: Skip notifications on Saturday (5) and Sunday (6)
-    current_day = datetime.now().weekday()
-    if current_day >= 5:  # 5=Saturday, 6=Sunday
-        return
+    # Weekend check: Skip notifications on Saturday (5) and Sunday (6) — unless forced
+    if not force:
+        current_day = datetime.now().weekday()
+        if current_day >= 5:  # 5=Saturday, 6=Sunday
+            return
     
     # Create SSL context that ignores certificate errors (for VPS with proxy/firewall)
     ssl_context = ssl.create_default_context()
@@ -176,7 +177,7 @@ def send_strategy_report(account: Dict):
         freeze_emoji = '🧊' if _freeze_mode_active else '✅'
         msg += f"\n{freeze_emoji} <b>Freeze Status:</b> {'ACTIVE' if _freeze_mode_active else 'Normal'}\n"
         
-        send_telegram(msg)
+        send_telegram(msg, force=True)  # Reports always send, even on weekends
         log("INFO", f"[REPORT] Strategy report sent for account {account_id}", account_id)
         
     except Exception as e:
