@@ -2249,6 +2249,9 @@ def main():
     cycle = 0
     safety_engines: Dict[str, SafetyEngine] = {}  # Cache safety engines per account
     
+    # === TEST REPORT MODE (one-time, remove after testing) ===
+    _test_report_sent = False
+    
     while True:
         # Check for pending commands from dashboard
         if not check_pending_commands():
@@ -2260,6 +2263,18 @@ def main():
         
         # Fetch active accounts from database
         accounts = fetch_active_accounts()
+        
+        # === TEST: Send report immediately on first cycle (one-time) ===
+        if accounts and not _test_report_sent:
+            log("INFO", "[TEST] Sending test strategy report...")
+            for account in accounts:
+                try:
+                    send_strategy_report(account)
+                    time.sleep(3)
+                except Exception as e:
+                    log("ERROR", f"[TEST] Report failed: {e}")
+            _test_report_sent = True
+            log("INFO", "[TEST] Test report sent successfully")
         
         # Check if it's time for scheduled report (7 AM / 7 PM Cairo)
         if accounts:
