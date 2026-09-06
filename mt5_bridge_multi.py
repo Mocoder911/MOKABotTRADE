@@ -83,6 +83,138 @@ def send_telegram(message: str):
             print(f"[TELEGRAM] Failed to send to {account['chat_id']}: {e}")
 
 # ============================================
+# SCHEDULED STRATEGY REPORT (7AM / 7PM Cairo)
+# ============================================
+_last_report_date = None  # Track last report to avoid duplicates
+_last_report_hour = None  # Track last report hour (7 or 19)
+
+def send_strategy_report(account: Dict):
+    """
+    Send a comprehensive strategy report via Telegram.
+    Includes: account metrics, open positions, per-pair P/L, strategy config.
+    """
+    login = account['login']
+    password = account['password']
+    server = account['server']
+    account_id = str(login)
+    
+    try:
+        # Initialize MT5
+        init_result = mt5.initialize(login=login, password=password, server=server, timeout=10000)
+        if not init_result:
+            log("ERROR", f"[REPORT] MT5 init failed for {account_id}", account_id)
+            return
+        
+        info = mt5.account_info()
+        if not info:
+            log("ERROR", f"[REPORT] Cannot get account info for {account_id}", account_id)
+            return
+        
+        positions = mt5.positions_get() or []
+        total_floating_pl = sum(pos.profit + pos.swap for pos in positions)
+        
+        # Group positions by symbol
+        symbol_pl = {}
+        for pos in positions:
+            sym = pos.symbol
+            if sym not in symbol_pl:
+                symbol_pl[sym] = {'profit': 0.0, 'swap': 0.0, 'count': 0, 'type': 'N/A'}
+            symbol_pl[sym]['profit'] += pos.profit
+            symbol_pl[sym]['swap'] += pos.swap
+            symbol_pl[sym]['count'] += 1
+            symbol_pl[sym]['type'] = 'BUY' if pos.type == mt5.POSITION_TYPE_BUY else 'SELL'
+        
+        # Build report message
+        now_cairo = datetime.now(timezone(timedelta(hours=2)))
+        report_time = now_cairo.strftime('%Y-%m-%d %H:%M Cairo')
+        
+        msg = f"📊 <b>MOKABot Strategy Report</b>\n"
+        msg += f"━━━━━━━━━━━━━━━━━━━━\n"
+        msg += f"🕐 <b>Time:</b> {report_time}\n"
+        msg += f"🏦 <b>Account:</b> <code>{account_id}</code>\n\n"
+        
+        # Account metrics
+        msg += f"💰 <b>Account Metrics</b>\n"
+        msg += f"├ Balance: <b>${info.balance:.2f}</b>\n"
+        msg += f"├ Equity: <b>${info.equity:.2f}</b>\n"
+        msg += f"├ Margin: <b>${info.margin:.2f}</b>\n"
+        msg += f"├ Free Margin: <b>${info.margin_free:.2f}</b>\n"
+        pl_emoji = '🟢' if total_floating_pl >= 0 else '🔴'
+        msg += f"└ Floating P/L: {pl_emoji} <b>${total_floating_pl:.2f}</b>\n\n"
+        
+        # Open positions summary
+        msg += f"📈 <b>Open Positions:</b> {len(positions)}\n"
+        if symbol_pl:
+            for sym in sorted(symbol_pl.keys()):
+                data = symbol_pl[sym]
+                total = data['profit'] + data['swap']
+                sym_emoji = '🟢' if total >= 0 else '🔴'
+                msg += f"{sym_emoji} <b>{sym}</b>: {data['count']} pos ({data['type']}) | P/L: ${total:.2f}\n"
+        else:
+            msg += f"⚪ No open positions\n"
+        
+        msg += f"\n"
+        
+        # Strategy configuration
+        tactics_settings = fetch_tactics_settings()
+        lot_size = get_fixed_lot_size(tactics_settings)
+        basket_tp = float(tactics_settings.get('Basket_Take_Profit', DEFAULT_BASKET_TP))
+        grid_step_usd = DEFAULT_GRID_STEP_LOSS_USD
+        max_pos = MAX_POSITIONS_PER_PAIR
+        
+        msg += f"⚙️ <b>Strategy Config</b>\n"
+        msg += f"├ Pairs: <b>21</b> (7-currency crosses)\n"
+        msg += f"├ Lot Size: <b>{lot_size}</b>\n"
+        msg += f"├ Basket TP: <b>${basket_tp:.2f}</b>/pair\n"
+        msg += f"├ Grid Step: <b>-${grid_step_usd:.2f}</b> loss trigger\n"
+        msg += f"├ Max Positions/Pair: <b>{max_pos}</b> (1 base + 3 grid)\n"
+        msg += f"├ Direction: RSI(14) + MACD + EMA Trend\n"
+        msg += f"├ Hedge: 11 BUY / 10 SELL max\n"
+        msg += f"└ Freeze Mode: <b>-$500</b> floating loss\n"
+        
+        # Freeze status
+        freeze_emoji = '🧊' if _freeze_mode_active else '✅'
+        msg += f"\n{freeze_emoji} <b>Freeze Status:</b> {'ACTIVE' if _freeze_mode_active else 'Normal'}\n"
+        
+        send_telegram(msg)
+        log("INFO", f"[REPORT] Strategy report sent for account {account_id}", account_id)
+        
+    except Exception as e:
+        log("ERROR", f"[REPORT] Failed to send report: {e}", account_id)
+    finally:
+        mt5.shutdown()
+
+
+def check_scheduled_report(accounts: list):
+    """
+    Check if it's time to send the scheduled report (7 AM or 7 PM Cairo time).
+    Cairo = UTC+2, so 7 AM Cairo = 5 AM UTC, 7 PM Cairo = 5 PM UTC.
+    """
+    global _last_report_date, _last_report_hour
+    
+    now_cairo = datetime.now(timezone(timedelta(hours=2)))
+    current_hour = now_cairo.hour
+    current_date = now_cairo.date()
+    
+    # Report at 7 AM (hour=7) or 7 PM (hour=19)
+    if current_hour in (7, 19):
+        # Check if we already sent a report for this date+hour
+        if _last_report_date == current_date and _last_report_hour == current_hour:
+            return  # Already sent
+        
+        log("INFO", f"[SCHEDULE] Report time! {now_cairo.strftime('%H:%M')} Cairo")
+        _last_report_date = current_date
+        _last_report_hour = current_hour
+        
+        # Send report for each account
+        for account in accounts:
+            try:
+                send_strategy_report(account)
+                time.sleep(3)  # Delay between accounts
+            except Exception as e:
+                log("ERROR", f"[SCHEDULE] Report failed for {account['login']}: {e}")
+
+# ============================================
 # CONNECTION TIMEOUT & FAILURE TRACKING
 # ============================================
 CONNECTION_TIMEOUT_SECONDS = 10  # Max time to wait for MT5 connection (increased for slow brokers)
@@ -2106,9 +2238,11 @@ def main():
     
     # Print hard-coded strategy configuration
     log("INFO", "[System] Strategy Loaded: Grid Trading Mode | Lot 0.01 | Basket $2.50/pair | Grid Step -$10 | Max 4 pos/pair")
-    log("INFO", "[System] 14 Pairs: EURUSD GBPUSD USDCHF USDCAD USDJPY EURJPY GBPJPY CHFJPY CADJPY AUDJPY AUDUSD EURGBP EURAUD GBPAUD")
-    log("INFO", "[System] Dynamic Correlation: 7/7 Hedge Lock | USD Exposure | JPY 3/3 Lock | AUD Hedge")
+    log("INFO", "[System] 21 Pairs: All 7-currency crosses (USD, EUR, GBP, JPY, AUD, CAD, CHF)")
+    log("INFO", "[System] Direction: RSI(14) + MACD(12,26,9) + EMA(20/50) Trend Fallback")
+    log("INFO", "[System] Dynamic Correlation: 11/10 Hedge Lock | USD Exposure | JPY 4/3 Lock | AUD Hedge")
     log("INFO", "[System] Freeze Mode: -$500 floating loss | Auto-resume on recovery")
+    log("INFO", "[System] Scheduled Reports: 7 AM / 7 PM Cairo time via Telegram")
     log("INFO", "[System] Filters: Strict whitelist only. Blocked: NZD, XAU, XAG, OIL, BTC, ETH, US30, NAS100")
     log("INFO", "=" * 70)
     
@@ -2126,6 +2260,10 @@ def main():
         
         # Fetch active accounts from database
         accounts = fetch_active_accounts()
+        
+        # Check if it's time for scheduled report (7 AM / 7 PM Cairo)
+        if accounts:
+            check_scheduled_report(accounts)
         
         if not accounts:
             log("WARN", "No active accounts found. Waiting 30s...")
