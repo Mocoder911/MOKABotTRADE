@@ -159,7 +159,7 @@ def send_strategy_report(account: Dict):
         # Strategy configuration
         tactics_settings = fetch_tactics_settings()
         lot_size = get_fixed_lot_size(tactics_settings)
-        basket_tp = float(tactics_settings.get('Basket_Take_Profit', DEFAULT_BASKET_TP))
+        basket_tp = DEFAULT_BASKET_TP  # Always use hardcoded default ($2.50)
         grid_step_usd = DEFAULT_GRID_STEP_LOSS_USD
         max_pos = MAX_POSITIONS_PER_PAIR
         
