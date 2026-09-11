@@ -159,7 +159,7 @@ def send_strategy_report(account: Dict):
         # Strategy configuration
         tactics_settings = fetch_tactics_settings()
         lot_size = get_fixed_lot_size(tactics_settings)
-        basket_tp = DEFAULT_BASKET_TP  # Always use hardcoded default ($2.50)
+        basket_tp = DEFAULT_BASKET_TP  # Always use hardcoded default ($35)
         grid_step_usd = DEFAULT_GRID_STEP_LOSS_USD
         max_pos = MAX_POSITIONS_PER_PAIR
         
@@ -306,7 +306,7 @@ def ensure_symbol_in_market_watch(symbol: str, account_id: str) -> bool:
 # These values are applied automatically unless overridden in tactics_settings table
 DEFAULT_GRID_STEP = 100          # Grid step in points (LEGACY - not used anymore)
 DEFAULT_FIXED_LOT_SIZE = 0.1     # Fixed lot size - no multipliers
-DEFAULT_BASKET_TP = 2.50         # Basket take profit per pair in USD
+DEFAULT_BASKET_TP = 35.0         # Basket take profit per pair in USD
 DEFAULT_MAX_POSITIONS = 11        # Max open positions per pair (1 base + 10 grid)
 MAX_POSITIONS_PER_PAIR = 11       # HARD LIMIT: Max 11 positions per pair (1 base + 10 grid)
 GLOBAL_FREEZE_THRESHOLD = -5000.0  # Global floating loss limit
@@ -2238,7 +2238,7 @@ def main():
     log("INFO", "=" * 70)
     
     # Print hard-coded strategy configuration
-    log("INFO", "[System] Strategy Loaded: Grid Trading Mode | Lot 0.1 | Basket $2.50/pair | Grid Step -$10 | Max 11 pos/pair (1 base + 10 grid)")
+    log("INFO", "[System] Strategy Loaded: Grid Trading Mode | Lot 0.1 | Basket $35/pair | Grid Step -$10 | Max 11 pos/pair (1 base + 10 grid)")
     log("INFO", "[System] 21 Pairs: All 7-currency crosses (USD, EUR, GBP, JPY, AUD, CAD, CHF)")
     log("INFO", "[System] Direction: RSI(14) + MACD(12,26,9) + EMA(20/50) Trend Fallback")
     log("INFO", "[System] Dynamic Correlation: 11/10 Hedge Lock | USD Exposure | JPY 4/3 Lock | AUD Hedge")
