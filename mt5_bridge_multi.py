@@ -50,7 +50,7 @@ TELEGRAM_ENABLED = True  # Set to False to disable notifications
 # Set to True to only trade on a specific account (ignores database)
 SINGLE_ACCOUNT_MODE = True
 SINGLE_ACCOUNT_LOGIN = 1514605996
-SINGLE_ACCOUNT_PASSWORD = "@*EEF9Y?"
+SINGLE_ACCOUNT_PASSWORD = "8Q*64?12WXw"
 SINGLE_ACCOUNT_SERVER = "FTMO-Demo"
 
 def send_telegram(message: str, force: bool = False):
@@ -305,7 +305,7 @@ def ensure_symbol_in_market_watch(symbol: str, account_id: str) -> bool:
 # ============================================
 # These values are applied automatically unless overridden in tactics_settings table
 DEFAULT_GRID_STEP = 100          # Grid step in points (LEGACY - not used anymore)
-DEFAULT_FIXED_LOT_SIZE = 0.01    # Fixed lot size - no multipliers
+DEFAULT_FIXED_LOT_SIZE = 0.1     # Fixed lot size - no multipliers
 DEFAULT_BASKET_TP = 2.50         # Basket take profit per pair in USD
 DEFAULT_MAX_POSITIONS = 4         # Max open positions per pair (1 base + 3 grid)
 MAX_POSITIONS_PER_PAIR = 4       # HARD LIMIT: Max 4 positions per pair (1 base + 3 grid)
