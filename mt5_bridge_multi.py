@@ -171,7 +171,7 @@ def send_strategy_report(account: Dict):
         msg += f"├ Max Positions/Pair: <b>{max_pos}</b> (1 base + 3 grid)\n"
         msg += f"├ Direction: RSI(14) + MACD + EMA Trend\n"
         msg += f"├ Hedge: 11 BUY / 10 SELL max\n"
-        msg += f"└ Freeze Mode: <b>-$500</b> floating loss\n"
+        msg += f"└ Freeze Mode: <b>-$5,000</b> floating loss\n"
         
         # Freeze status
         freeze_emoji = '🧊' if _freeze_mode_active else '✅'
@@ -309,7 +309,7 @@ DEFAULT_FIXED_LOT_SIZE = 0.1     # Fixed lot size - no multipliers
 DEFAULT_BASKET_TP = 2.50         # Basket take profit per pair in USD
 DEFAULT_MAX_POSITIONS = 4         # Max open positions per pair (1 base + 3 grid)
 MAX_POSITIONS_PER_PAIR = 4       # HARD LIMIT: Max 4 positions per pair (1 base + 3 grid)
-GLOBAL_FREEZE_THRESHOLD = -500.0  # Global floating loss limit (50% equity protection)
+GLOBAL_FREEZE_THRESHOLD = -5000.0  # Global floating loss limit
 DEFAULT_EQUITY_SL_PCT = 0        # Equity stop loss percentage
 DEFAULT_MAX_SPREAD_PIPS = 3.0    # Max allowed spread in pips
 DEFAULT_GRID_STEP_LOSS_USD = 10.0  # Grid step based on dollar loss per position
@@ -1291,7 +1291,7 @@ def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, ac
 def process_all_symbols(account_id: str, settings: Dict):
     """
     Process all allowed symbols with grid trading logic:
-    1. Check global freeze mode (-$500 floating loss)
+    1. Check global freeze mode (-$5000 floating loss)
     2. Check basket TP per pair and close if target reached
     3. Re-open base order for closed pairs immediately (direction from RSI/MACD)
     4. For symbols with no positions, open base order (direction from RSI/MACD)
@@ -2242,7 +2242,7 @@ def main():
     log("INFO", "[System] 21 Pairs: All 7-currency crosses (USD, EUR, GBP, JPY, AUD, CAD, CHF)")
     log("INFO", "[System] Direction: RSI(14) + MACD(12,26,9) + EMA(20/50) Trend Fallback")
     log("INFO", "[System] Dynamic Correlation: 11/10 Hedge Lock | USD Exposure | JPY 4/3 Lock | AUD Hedge")
-    log("INFO", "[System] Freeze Mode: -$500 floating loss | Auto-resume on recovery")
+    log("INFO", "[System] Freeze Mode: -$5000 floating loss | Auto-resume on recovery")
     log("INFO", "[System] Scheduled Reports: 7 AM / 7 PM Cairo time via Telegram")
     log("INFO", "[System] Filters: Strict whitelist only. Blocked: NZD, XAU, XAG, OIL, BTC, ETH, US30, NAS100")
     log("INFO", "=" * 70)
