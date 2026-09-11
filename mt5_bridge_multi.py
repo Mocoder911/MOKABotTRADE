@@ -49,9 +49,9 @@ TELEGRAM_ENABLED = True  # Set to False to disable notifications
 # ============================================
 # Set to True to only trade on a specific account (ignores database)
 SINGLE_ACCOUNT_MODE = True
-SINGLE_ACCOUNT_LOGIN = 84318982
-SINGLE_ACCOUNT_PASSWORD = "Kikokok5@"
-SINGLE_ACCOUNT_SERVER = "FPMarketsSC-Live"
+SINGLE_ACCOUNT_LOGIN = 1514605996
+SINGLE_ACCOUNT_PASSWORD = "@*EEF9Y?"
+SINGLE_ACCOUNT_SERVER = "FTMO-Demo"
 
 def send_telegram(message: str, force: bool = False):
     """Send a Telegram notification to all configured accounts. Skips weekends unless force=True."""
