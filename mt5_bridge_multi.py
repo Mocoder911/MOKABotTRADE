@@ -168,7 +168,7 @@ def send_strategy_report(account: Dict):
         msg += f"├ Lot Size: <b>{lot_size}</b>\n"
         msg += f"├ Basket TP: <b>${basket_tp:.2f}</b>/pair\n"
         msg += f"├ Grid Step: <b>-${grid_step_usd:.2f}</b> loss trigger\n"
-        msg += f"├ Max Positions/Pair: <b>{max_pos}</b> (1 base + 3 grid)\n"
+        msg += f"├ Max Positions/Pair: <b>{max_pos}</b> (1 base + 10 grid)\n"
         msg += f"├ Direction: RSI(14) + MACD + EMA Trend\n"
         msg += f"├ Hedge: 11 BUY / 10 SELL max\n"
         msg += f"└ Freeze Mode: <b>-$5,000</b> floating loss\n"
@@ -307,8 +307,8 @@ def ensure_symbol_in_market_watch(symbol: str, account_id: str) -> bool:
 DEFAULT_GRID_STEP = 100          # Grid step in points (LEGACY - not used anymore)
 DEFAULT_FIXED_LOT_SIZE = 0.1     # Fixed lot size - no multipliers
 DEFAULT_BASKET_TP = 2.50         # Basket take profit per pair in USD
-DEFAULT_MAX_POSITIONS = 4         # Max open positions per pair (1 base + 3 grid)
-MAX_POSITIONS_PER_PAIR = 4       # HARD LIMIT: Max 4 positions per pair (1 base + 3 grid)
+DEFAULT_MAX_POSITIONS = 11        # Max open positions per pair (1 base + 10 grid)
+MAX_POSITIONS_PER_PAIR = 11       # HARD LIMIT: Max 11 positions per pair (1 base + 10 grid)
 GLOBAL_FREEZE_THRESHOLD = -5000.0  # Global floating loss limit
 DEFAULT_EQUITY_SL_PCT = 0        # Equity stop loss percentage
 DEFAULT_MAX_SPREAD_PIPS = 3.0    # Max allowed spread in pips
@@ -1246,7 +1246,7 @@ def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, ac
     if not positions:
         return
     
-    # HARD LIMIT: Max 4 positions per pair (1 base + 3 grid) - NO 5th order allowed
+    # HARD LIMIT: Max 11 positions per pair (1 base + 10 grid)
     if len(positions) >= MAX_POSITIONS_PER_PAIR:
         log("DEBUG", f"[GRID] {symbol}: Max positions {len(positions)}/{MAX_POSITIONS_PER_PAIR} - BLOCKED (hard limit)", account_id)
         return
@@ -2238,7 +2238,7 @@ def main():
     log("INFO", "=" * 70)
     
     # Print hard-coded strategy configuration
-    log("INFO", "[System] Strategy Loaded: Grid Trading Mode | Lot 0.01 | Basket $2.50/pair | Grid Step -$10 | Max 4 pos/pair")
+    log("INFO", "[System] Strategy Loaded: Grid Trading Mode | Lot 0.1 | Basket $2.50/pair | Grid Step -$10 | Max 11 pos/pair (1 base + 10 grid)")
     log("INFO", "[System] 21 Pairs: All 7-currency crosses (USD, EUR, GBP, JPY, AUD, CAD, CHF)")
     log("INFO", "[System] Direction: RSI(14) + MACD(12,26,9) + EMA(20/50) Trend Fallback")
     log("INFO", "[System] Dynamic Correlation: 11/10 Hedge Lock | USD Exposure | JPY 4/3 Lock | AUD Hedge")
