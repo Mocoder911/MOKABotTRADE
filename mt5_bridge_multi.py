@@ -49,8 +49,8 @@ TELEGRAM_ENABLED = True  # Set to False to disable notifications
 # ============================================
 # Set to True to only trade on a specific account (ignores database)
 SINGLE_ACCOUNT_MODE = True
-SINGLE_ACCOUNT_LOGIN = 1514605996
-SINGLE_ACCOUNT_PASSWORD = "8Q*64?12WXw"
+SINGLE_ACCOUNT_LOGIN = 1514628159
+SINGLE_ACCOUNT_PASSWORD = "@FiKx4i$RCF"
 SINGLE_ACCOUNT_SERVER = "FTMO-Demo"
 
 def send_telegram(message: str, force: bool = False):
@@ -159,19 +159,19 @@ def send_strategy_report(account: Dict):
         # Strategy configuration
         tactics_settings = fetch_tactics_settings()
         lot_size = get_fixed_lot_size(tactics_settings)
-        basket_tp = DEFAULT_BASKET_TP  # Always use hardcoded default ($35)
+        basket_tp = DEFAULT_BASKET_TP  # Always use hardcoded default ($10)
         grid_step_usd = DEFAULT_GRID_STEP_LOSS_USD
         max_pos = MAX_POSITIONS_PER_PAIR
         
         msg += f"⚙️ <b>Strategy Config</b>\n"
-        msg += f"├ Pairs: <b>21</b> (7-currency crosses)\n"
+        msg += f"├ Pairs: <b>6</b> (FTMO $100K Challenge)\n"
         msg += f"├ Lot Size: <b>{lot_size}</b>\n"
         msg += f"├ Basket TP: <b>${basket_tp:.2f}</b>/pair\n"
         msg += f"├ Grid Step: <b>-${grid_step_usd:.2f}</b> loss trigger\n"
-        msg += f"├ Max Positions/Pair: <b>{max_pos}</b> (1 base + 10 grid)\n"
+        msg += f"├ Max Base Positions: <b>{max_pos}</b> (across 6 pairs)\n"
         msg += f"├ Direction: RSI(14) + MACD + EMA Trend\n"
-        msg += f"├ Hedge: 11 BUY / 10 SELL max\n"
-        msg += f"└ Freeze Mode: <b>-$5,000</b> floating loss\n"
+        msg += f"├ Hedge: 10 BUY / 10 SELL max\n"
+        msg += f"└ Freeze Mode: <b>-$3,500</b> floating loss\n"
         
         # Freeze status
         freeze_emoji = '🧊' if _freeze_mode_active else '✅'
@@ -305,14 +305,14 @@ def ensure_symbol_in_market_watch(symbol: str, account_id: str) -> bool:
 # ============================================
 # These values are applied automatically unless overridden in tactics_settings table
 DEFAULT_GRID_STEP = 100          # Grid step in points (LEGACY - not used anymore)
-DEFAULT_FIXED_LOT_SIZE = 0.1     # Fixed lot size - no multipliers
-DEFAULT_BASKET_TP = 35.0         # Basket take profit per pair in USD
-DEFAULT_MAX_POSITIONS = 11        # Max open positions per pair (1 base + 10 grid)
-MAX_POSITIONS_PER_PAIR = 11       # HARD LIMIT: Max 11 positions per pair (1 base + 10 grid)
-GLOBAL_FREEZE_THRESHOLD = -5000.0  # Global floating loss limit
+DEFAULT_FIXED_LOT_SIZE = 0.03    # Fixed lot size - FTMO challenge
+DEFAULT_BASKET_TP = 10.0         # Basket take profit per pair in USD
+DEFAULT_MAX_POSITIONS = 20        # Max base positions across all pairs
+MAX_POSITIONS_PER_PAIR = 20       # HARD LIMIT: Max 20 base positions global
+GLOBAL_FREEZE_THRESHOLD = -3500.0  # Global floating loss limit (NO realized loss)
 DEFAULT_EQUITY_SL_PCT = 0        # Equity stop loss percentage
 DEFAULT_MAX_SPREAD_PIPS = 3.0    # Max allowed spread in pips
-DEFAULT_GRID_STEP_LOSS_USD = 10.0  # Grid step based on dollar loss per position
+DEFAULT_GRID_STEP_LOSS_USD = 15.0  # Grid step trigger: -$15 pair net floating loss
 
 # ============================================
 # STRICT STRATEGY PROTOCOL
@@ -341,42 +341,25 @@ FOREX_CURRENCIES = load_allowed_currencies()
 # Additional blocked symbols (indices, commodities, crypto)
 BLOCKED_SYMBOL_KEYWORDS = ['XAU', 'XAG', 'OIL', 'BTC', 'ETH', 'US30', 'NAS100', 'SPX500', 'GOLD', 'SILVER']
 
-# Allowed 21 pairs whitelist (ONLY these pairs can be traded)
-# All valid cross-pairs from 7 currencies: USD, EUR, GBP, JPY, AUD, CAD, CHF
+# Allowed 6 pairs whitelist (FTMO $100K Challenge - STRICT)
 ALLOWED_PAIRS = {
-    'EURUSD', 'GBPUSD', 'USDCHF', 'USDCAD', 'USDJPY', 'EURJPY', 'GBPJPY',
-    'CHFJPY', 'CADJPY', 'AUDJPY', 'AUDUSD', 'EURGBP', 'EURAUD', 'GBPAUD',
-    'EURCAD', 'GBPCAD', 'CADCHF', 'EURCHF', 'GBPCHF', 'AUDCAD', 'AUDCHF',
+    'EURUSD', 'GBPUSD', 'USDCAD', 'USDJPY', 'AUDUSD', 'NZDUSD',
 }
 
 # Pair groups for correlation rules
-JPY_PAIRS = {'USDJPY', 'EURJPY', 'GBPJPY', 'CHFJPY', 'CADJPY', 'AUDJPY'}
-USD_PAIRS = {'EURUSD', 'GBPUSD', 'USDCHF', 'USDCAD'}
-AUD_PAIRS = {'AUDUSD', 'AUDJPY'}
+JPY_PAIRS = {'USDJPY'}
+USD_PAIRS = {'EURUSD', 'GBPUSD', 'USDCAD'}
+AUD_PAIRS = {'AUDUSD'}
+NZD_PAIRS = {'NZDUSD'}
 
 # Per-pair Magic Numbers for independent P/L tracking
 PAIR_MAGIC = {
     'EURUSD': 100101,
     'GBPUSD': 100202,
-    'USDCHF': 100303,
     'USDCAD': 100404,
     'USDJPY': 100505,
-    'EURJPY': 100606,
-    'GBPJPY': 100707,
-    'CHFJPY': 100808,
-    'CADJPY': 100909,
-    'AUDJPY': 101010,
     'AUDUSD': 101111,
-    'EURGBP': 101212,
-    'EURAUD': 101313,
-    'GBPAUD': 101414,
-    'EURCAD': 101515,
-    'GBPCAD': 101616,
-    'CADCHF': 101717,
-    'EURCHF': 101818,
-    'GBPCHF': 101919,
-    'AUDCAD': 102020,
-    'AUDCHF': 102121,
+    'NZDUSD': 102222,
 }
 DEFAULT_MAGIC = 100000  # Fallback for any pair not in the map
 
@@ -402,7 +385,7 @@ def is_allowed_symbol(symbol: str, settings: Dict) -> bool:
         if keyword in symbol_upper:
             return False
     
-    # STRICT WHITELIST: Only allow the 14 configured pairs
+    # STRICT WHITELIST: Only allow the 6 configured pairs
     if symbol_upper not in ALLOWED_PAIRS:
         return False
     
@@ -413,7 +396,7 @@ def get_dynamic_direction(symbol: str, account_id: str = None) -> str:
     Calculate dynamic trade direction with strict hedge correlation rules.
     
     Rules applied in order:
-    1. Global Hedge Lock: Max 11 BUY / 10 SELL across all 21 pairs
+    1. Global Hedge Lock: Max 10 BUY / 10 SELL across all 6 pairs
     2. USD Exposure Hedge: EURUSD/GBPUSD direction affects USDCHF/USDCAD
     3. JPY Crosses Lock: Max 4 BUY / 3 SELL across 6 JPY pairs
     4. AUD Commodity Hedge: AUDUSD direction restricts AUDJPY
@@ -458,35 +441,25 @@ def get_dynamic_direction(symbol: str, account_id: str = None) -> str:
     
     direction = market_signal
     
-    # === RULE A: Global Hedge Lock (11 BUY / 10 SELL for 21 pairs) ===
-    if buy_count >= 11 and direction == 'BUY':
-        log("INFO", f"[HEDGE] {symbol}: BUY count={buy_count}/11 - FORCED to SELL", account_id)
+    # === RULE A: Global Hedge Lock (10 BUY / 10 SELL for 6 pairs) ===
+    if buy_count >= 10 and direction == 'BUY':
+        log("INFO", f"[HEDGE] {symbol}: BUY count={buy_count}/10 - FORCED to SELL", account_id)
         direction = 'SELL'
     elif sell_count >= 10 and direction == 'SELL':
         log("INFO", f"[HEDGE] {symbol}: SELL count={sell_count}/10 - FORCED to BUY", account_id)
         direction = 'BUY'
     
     # === RULE B: USD Exposure Hedge ===
-    if symbol == 'USDCHF':
-        # USDCHF is negatively correlated with EUR/GBP
+    # USDCAD hedge: oppose EUR/GBP direction
+    if symbol == 'USDCAD':
         if usd_base_direction == 'BUY':
-            # EUR/GBP BUY -> USD weak -> USDCHF should BUY (USD strength)
-            direction = 'BUY'
-            log("INFO", f"[USD HEDGE] {symbol}: EUR/GBP=BUY -> USDCHF forced BUY", account_id)
-        elif usd_base_direction == 'SELL':
             direction = 'SELL'
-            log("INFO", f"[USD HEDGE] {symbol}: EUR/GBP=SELL -> USDCHF forced SELL", account_id)
-    
-    elif symbol == 'USDCAD':
-        # USDCAD is positively correlated with USD strength
-        if usd_base_direction == 'BUY':
-            direction = 'SELL'  # Force opposite to hedge
             log("INFO", f"[USD HEDGE] {symbol}: EUR/GBP=BUY -> USDCAD forced SELL", account_id)
         elif usd_base_direction == 'SELL':
             direction = 'BUY'
             log("INFO", f"[USD HEDGE] {symbol}: EUR/GBP=SELL -> USDCAD forced BUY", account_id)
     
-    # === RULE C: JPY Crosses Group Lock (4 BUY / 3 SELL for 6 JPY pairs) ===
+    # === RULE C: JPY Cross Lock (4 BUY / 3 SELL for USDJPY) ===
     if symbol in JPY_PAIRS:
         if jpy_buy >= 4 and direction == 'BUY':
             direction = 'SELL'
@@ -495,31 +468,8 @@ def get_dynamic_direction(symbol: str, account_id: str = None) -> str:
             direction = 'BUY'
             log("INFO", f"[JPY LOCK] {symbol}: JPY SELL={jpy_sell}/3 - FORCED to BUY", account_id)
     
-    # === RULE D: AUD Commodity Hedge ===
-    if symbol == 'AUDJPY' and audusd_direction:
-        # AUDJPY should oppose AUDUSD to balance AUD risk
-        if audusd_direction == 'BUY':
-            direction = 'SELL'
-            log("INFO", f"[AUD HEDGE] {symbol}: AUDUSD=BUY -> AUDJPY forced SELL", account_id)
-        elif audusd_direction == 'SELL':
-            direction = 'BUY'
-            log("INFO", f"[AUD HEDGE] {symbol}: AUDUSD=SELL -> AUDJPY forced BUY", account_id)
-    
-    elif symbol == 'AUDUSD':
-        # Check if AUDJPY already has a direction
-        audjpy_direction = None
-        for pos in all_positions:
-            if pos.symbol == 'AUDJPY' and pos.comment == "MOKABot Base":
-                audjpy_direction = 'BUY' if pos.type == mt5.POSITION_TYPE_BUY else 'SELL'
-                break
-        if audjpy_direction:
-            # AUDUSD should oppose AUDJPY
-            if audjpy_direction == 'BUY':
-                direction = 'SELL'
-                log("INFO", f"[AUD HEDGE] {symbol}: AUDJPY=BUY -> AUDUSD forced SELL", account_id)
-            else:
-                direction = 'BUY'
-                log("INFO", f"[AUD HEDGE] {symbol}: AUDJPY=SELL -> AUDUSD forced BUY", account_id)
+    # === RULE D: AUD Hedge (AUDUSD only, no AUDJPY in FTMO config) ===
+    # No additional AUD hedge needed with only AUDUSD (no AUDJPY)
     
     log("DEBUG", f"[DIRECTION] {symbol}: Market={market_signal} -> Final={direction} (BUY:{buy_count}/SELL:{sell_count})", account_id)
     return direction
@@ -1246,7 +1196,7 @@ def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, ac
     if not positions:
         return
     
-    # HARD LIMIT: Max 11 positions per pair (1 base + 10 grid)
+    # HARD LIMIT: Max 20 base positions across all pairs
     if len(positions) >= MAX_POSITIONS_PER_PAIR:
         log("DEBUG", f"[GRID] {symbol}: Max positions {len(positions)}/{MAX_POSITIONS_PER_PAIR} - BLOCKED (hard limit)", account_id)
         return
@@ -1291,11 +1241,11 @@ def check_and_open_grid_steps(symbol: str, step_points: int, lot_size: float, ac
 def process_all_symbols(account_id: str, settings: Dict):
     """
     Process all allowed symbols with grid trading logic:
-    1. Check global freeze mode (-$5000 floating loss)
+    1. Check global freeze mode (-$3500 floating loss)
     2. Check basket TP per pair and close if target reached
     3. Re-open base order for closed pairs immediately (direction from RSI/MACD)
     4. For symbols with no positions, open base order (direction from RSI/MACD)
-    5. Max 21 pairs, max 4 positions per pair
+    5. Max 6 pairs, max 20 base positions
     """
     global _freeze_mode_active
     
@@ -1303,7 +1253,7 @@ def process_all_symbols(account_id: str, settings: Dict):
     grid_step = int(settings.get('Grid_Step', 100))
     max_positions = int(settings.get('Max_Open_Positions', DEFAULT_MAX_POSITIONS))
     lot_size = get_fixed_lot_size(settings)
-    MAX_BASE_ORDERS = 21  # Hard limit: 21 pairs (all 7-currency crosses)
+    MAX_BASE_ORDERS = 6  # Hard limit: 6 pairs (FTMO $100K Challenge)
     
     # Get all available symbols from MT5
     all_symbols = mt5.symbols_get()
@@ -2238,13 +2188,13 @@ def main():
     log("INFO", "=" * 70)
     
     # Print hard-coded strategy configuration
-    log("INFO", "[System] Strategy Loaded: Grid Trading Mode | Lot 0.1 | Basket $35/pair | Grid Step -$10 | Max 11 pos/pair (1 base + 10 grid)")
-    log("INFO", "[System] 21 Pairs: All 7-currency crosses (USD, EUR, GBP, JPY, AUD, CAD, CHF)")
+    log("INFO", "[System] Strategy Loaded: Grid Trading Mode | Lot 0.03 | Basket $10/pair | Grid Step -$15 | Max 20 base positions | 6 pairs")
+    log("INFO", "[System] 6 Pairs: EURUSD, GBPUSD, USDCAD, USDJPY, AUDUSD, NZDUSD (FTMO $100K)")
     log("INFO", "[System] Direction: RSI(14) + MACD(12,26,9) + EMA(20/50) Trend Fallback")
-    log("INFO", "[System] Dynamic Correlation: 11/10 Hedge Lock | USD Exposure | JPY 4/3 Lock | AUD Hedge")
-    log("INFO", "[System] Freeze Mode: -$5000 floating loss | Auto-resume on recovery")
+    log("INFO", "[System] Dynamic Correlation: 10/10 Hedge Lock | USD Exposure | JPY 4/3 Lock")
+    log("INFO", "[System] Freeze Mode: -$3500 floating loss | Auto-resume on recovery | NO realized loss")
     log("INFO", "[System] Scheduled Reports: 7 AM / 7 PM Cairo time via Telegram")
-    log("INFO", "[System] Filters: Strict whitelist only. Blocked: NZD, XAU, XAG, OIL, BTC, ETH, US30, NAS100")
+    log("INFO", "[System] Filters: Strict whitelist only. Blocked: XAU, XAG, OIL, BTC, ETH, US30, NAS100, CHF")
     log("INFO", "=" * 70)
     
     cycle = 0
