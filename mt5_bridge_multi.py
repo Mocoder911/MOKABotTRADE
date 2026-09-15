@@ -29,8 +29,8 @@ from tactics.safety_engine import SafetyEngine
 # ============================================
 # SUPABASE CONFIGURATION
 # ============================================
-SUPABASE_URL = "https://lakbvdmjtoarmxmzvynu.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxha2J2ZG1qdG9hcm14bXp2eW51Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjkwMzA2NywiZXhwIjoyMDk4NDc5MDY3fQ.Y92Hm4kDpOVlOFZsRUkqlbuk3P4z7m-e3DARjtoqtvE"
+SUPABASE_URL = "https://tlcanlfdekbkhaevgoyi.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRsY2FubGZkZWtia2hhZXZnb3lpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTQ3NjA4NCwiZXhwIjoyMTA1MDUyMDg0fQ.CAaUCLoXfyKsRSFyiDJABdpnJ_DkHpcPw_lEuU3WlPE"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 

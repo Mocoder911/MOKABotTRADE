@@ -29,7 +29,7 @@ function LoginForm() {
     setError(null);
 
     console.log("[Login] Attempting login for:", email);
-    console.log("[Login] Supabase URL:", "https://lakbvdmjtoarmxmzvynu.supabase.co");
+    console.log("[Login] Supabase URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
